@@ -12,29 +12,28 @@ namespace nvilidar
 {
 	LidarProcess::LidarProcess(LidarCommTypeEnum comm, std::string name_ip, uint32_t port_baud)
 	{
-		//通信模式 
+		//communicate type 
 		LidarCommType = comm;
 
-		//雷达接口  首先初始化 
+		//lidar para 
 		Nvilidar_UserConfigTypeDef  cfg;
-		//获取默认参数  如需要修改 可以进行修改  
+		//get the default para 
 		LidarDefaultUserConfig(cfg);
 
-		//根据不同的通信接口 初始化不同的信息 
 		if (USE_SERIALPORT == comm)
 		{
-			cfg.serialport_name = name_ip;		//串口名 
-			cfg.serialport_baud = port_baud;	//串口波特率 
+			cfg.serialport_name = name_ip;		//serialport name 
+			cfg.serialport_baud = port_baud;	//serialport baud  
 
-			lidar_serial.LidarLoadConfig(cfg);	//串口 
+			lidar_serial.LidarLoadConfig(cfg);	//serialport  
 		}
 		else if (USE_SOCKET == comm)
 		{
 			cfg.ip_addr = name_ip;
 			cfg.lidar_udp_port = port_baud;
 			
-			lidar_udp.LidarLoadConfig(cfg);	//网络接口 
-			lidar_net_cfg.LidarLoadConfig(cfg);	//配置参数  
+			lidar_udp.LidarLoadConfig(cfg);		//network para  
+			lidar_net_cfg.LidarLoadConfig(cfg);	//network config para   
 		}
 	}
 	LidarProcess::~LidarProcess()
@@ -42,10 +41,9 @@ namespace nvilidar
 
 	}
 
-	//雷达初始化 读写参数等信息 
+	//lidar init,for sync para ,get communicate state 
 	bool LidarProcess::LidarInitialialize()
 	{
-		//根据不同的通信接口 初始化不同的信息 
 		if (USE_SERIALPORT == LidarCommType)
 		{
 			return lidar_serial.LidarInitialialize();
@@ -57,10 +55,9 @@ namespace nvilidar
 		return false;
 	}
 
-	//启动雷达 
+	//turn on the lidar  
 	bool LidarProcess::LidarTurnOn()
 	{
-		//根据不同的通信接口 初始化不同的信息 
 		if (USE_SERIALPORT == LidarCommType)
 		{
 			return lidar_serial.LidarTurnOn();
@@ -72,10 +69,9 @@ namespace nvilidar
 		return false;
 	}
 
-	//停止雷达 
+	//ture off the lidar 
 	bool LidarProcess::LidarTurnOff()
 	{
-		//根据不同的通信接口 初始化不同的信息 
 		if (USE_SERIALPORT == LidarCommType)
 		{
 			return lidar_serial.LidarTurnOff();
@@ -87,7 +83,7 @@ namespace nvilidar
 		return false;
 	}
 
-	//雷达轮询机制  
+	//get lidar one circle data   
 	bool LidarProcess::LidarSamplingProcess(LidarScan &scan, uint32_t timeout)
 	{
 		bool ret_state = false;							//return states 
@@ -161,7 +157,7 @@ namespace nvilidar
 		return ret_state;
 	}
 
-	//退出 
+	//quit  
 	void LidarProcess::LidarCloseHandle()
 	{
 		if (USE_SERIALPORT == LidarCommType)
@@ -174,7 +170,7 @@ namespace nvilidar
 		}
 	}
 
-	//其它接口  自动重连
+	//auto reconnect 
 	bool LidarProcess::LidarAutoReconnect()
 	{
 		LidarCloseHandle();			//first,close the connect 
@@ -191,9 +187,9 @@ namespace nvilidar
 	}
 	
 
-	//=========================参数同步=================================
+	//=========================parameter sync=================================
 
-	//同步数据信息  相关信息 同步到雷达 
+	//lidar data  sync 
 	void  LidarProcess::LidarParaSync(Nvilidar_UserConfigTypeDef &cfg)
 	{
 		cfg.storePara.samplingRate = (uint32_t)(cfg.sampling_rate * 1000);		// * 1000
@@ -203,7 +199,7 @@ namespace nvilidar
 		cfg.storePara.tailingLevel = cfg.tailing_level;							//拖尾等级 
 		cfg.storePara.apdValue = cfg.apd_value;									//apd value 
 
-		//ingnore array拆分 
+		//ingnore array apart 
 		std::vector<float> elems;
 		std::stringstream ss(cfg.ignore_array_string);
 		std::string number;
@@ -212,7 +208,7 @@ namespace nvilidar
 		}
 		cfg.ignore_array = elems;
 
-		//看是否有需要过滤的数据 
+		//data to filter 
 		if (cfg.ignore_array.size() % 2)
 		{
 			nvilidar::console.error("ignore array is odd need be even");
@@ -229,46 +225,48 @@ namespace nvilidar
 		auto_reconnect_flag = cfg.auto_reconnect;
 	}
 
-	//初始参数 
+	//origin data 
 	void  LidarProcess::LidarDefaultUserConfig(Nvilidar_UserConfigTypeDef &cfg)
 	{
-		//配置参数 
+		//lidar model 
+		cfg.lidar_model_name = NVILIDAR_VP300;
+		//para to config 
 		cfg.serialport_baud = 921600;
 		cfg.serialport_name = "/dev/nvilidar";
-		cfg.ip_addr = "192.168.1.200";	//192.168.1.200 为雷达默认IP 可更改 
-		cfg.lidar_udp_port = 8100;				//8100为默认雷达传输用端口 不可更改 
-		cfg.config_tcp_port = 8200;			//8200为默认雷达配置参数用端口 不可更改 
+		cfg.ip_addr = "192.168.1.200";		//192.168.1.200 lidar default ip 
+		cfg.lidar_udp_port = 8100;			//8100 is lidar default port,use udp  
+		cfg.config_tcp_port = 8200;			//8200 is lidar default config para port,use tcp  
 		cfg.frame_id = "laser_frame";
-		cfg.resolution_fixed = false;		//非固定角分辨 
-		cfg.auto_reconnect = true;			//自动重连 
-		cfg.reversion = false;				//倒转 
-		cfg.inverted = false;				//180度 
+		cfg.resolution_fixed = false;		//one circle same points  
+		cfg.auto_reconnect = true;			//auto connect  
+		cfg.reversion = false;				//add 180.0 state 
+		cfg.inverted = false;				//mirror 
 		cfg.angle_max = 180.0;
 		cfg.angle_min = -180.0;
 		cfg.range_max = 64.0;
 		cfg.range_min = 0;
 		cfg.aim_speed = 10.0;				//10Hz
 		cfg.sampling_rate = 10;				//10k
-		cfg.sensitive = false;				//数据不加信号质量 
-		cfg.tailing_level = 6;				//拖尾等级  
-		cfg.angle_offset = 0.0;				//角度偏移 
-		cfg.apd_change_flag = false;		//允许修改apd值  默认为false 
-		cfg.apd_value = 500;				//默认修改的apd值 
-		cfg.single_channel = false;			//单通道 
-		cfg.ignore_array_string = "";		//过滤部分角度信息 
+		cfg.sensitive = false;				//default dont't use sensitive 
+		cfg.tailing_level = 6;				//tailing level 
+		cfg.angle_offset_change_flag = false;	//change angle offset flag
+		cfg.angle_offset = 0.0;				//angle offset 
+		cfg.apd_change_flag = false;		//can change apd value,default false
+		cfg.apd_value = 500;				//change apd value 
+		cfg.ignore_array_string = "";		//filter some angle 
 		//过滤点信息 
-		cfg.filter_jump_enable = true;		//使能跳动点过滤 
-		cfg.filter_jump_value_min = 3;		//跳动点最小过滤值 
-		cfg.filter_jump_value_max = 25;		//跳动点最大过滤值 
+		cfg.filter_jump_enable = true;		//jump point filter 
+		cfg.filter_jump_value_min = 3;		//min filter 
+		cfg.filter_jump_value_max = 25;		//max filter 
 
 		LidarParaSync(cfg);
 	}
 
-	//==========================其它接口   获取串口列表=======================================
+	//==========================get serialport list=======================================
 	std::string LidarProcess::LidarGetSerialList()
 	{
-		std::string port;       //选择的串口
-		std::vector<NvilidarSerialPortInfo> ports = nvilidar::LidarDriverSerialport::getPortList();       //获取串口列表
+		std::string port;       
+		std::vector<NvilidarSerialPortInfo> ports = nvilidar::LidarDriverSerialport::getPortList();      
 		std::vector<NvilidarSerialPortInfo>::iterator it;
 
 		//列表信息
@@ -315,7 +313,7 @@ namespace nvilidar
 		return port;
 	}
 
-	//================================其它接口  设置网络转接板参数配置=============================================
+	//================================other interface for network=============================================
 	bool LidarProcess::LidarSetNetConfig(std::string ip, std::string gateway, std::string mask)
 	{
 		Nvilidar_NetConfigTypeDef net_cfg;
@@ -328,7 +326,7 @@ namespace nvilidar
 			return 0;
 		}
 
-		//设置IP 
+		//set ip  
 		//ip = "192.168.1.201";
 		//gateway = "192.168.1.1";
 		//mask = "255.255.255.0";
@@ -339,7 +337,7 @@ namespace nvilidar
 			return false;
 		}
 		delayMS(1000);
-		//读取IP 
+		//read ip address 
 		state = lidar_net_cfg.LidarNetConfigRead(ip, gateway, mask);
 		if (false == state)
 		{
@@ -349,7 +347,7 @@ namespace nvilidar
 		nvilidar::console.message("read net para:");
 		nvilidar::console.message("ip:%s, gate:%s, mask:%s", ip.c_str(), gateway.c_str(), mask.c_str());
 
-		//断开连接  
+		//disconnect  
 		lidar_net_cfg.LidarNetConfigDisConnect();
 
 		return true;
@@ -357,20 +355,19 @@ namespace nvilidar
 
 
 
-	//=============================ROS预留接口 重新加载参数========================================================
+	//=============================ROS interface,for reload the parameter ===========================================
 	void LidarProcess::LidarReloadPara(Nvilidar_UserConfigTypeDef cfg)
 	{
 		LidarParaSync(cfg);
 		
-		//根据不同的通信接口 初始化不同的信息 
 		if (USE_SERIALPORT == LidarCommType)
 		{
-			lidar_serial.LidarLoadConfig(cfg);	//串口 
+			lidar_serial.LidarLoadConfig(cfg);	//serialport  
 		}
 		else if (USE_SOCKET == LidarCommType)
 		{		
-			lidar_udp.LidarLoadConfig(cfg);	//网络接口 
-			lidar_net_cfg.LidarLoadConfig(cfg);	//配置参数  
+			lidar_udp.LidarLoadConfig(cfg);	//network socket  
+			lidar_net_cfg.LidarLoadConfig(cfg);	//config para 
 		}
 	}
 }

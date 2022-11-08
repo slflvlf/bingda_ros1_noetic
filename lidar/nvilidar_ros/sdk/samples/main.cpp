@@ -25,12 +25,19 @@ int main()
 	//init signal,for ctrl+c
 	nvilidar::sigInit();
 
+	//introduce 
+	printf("Current sdk supports 2 types of lidar,include vp300,vp350 \n");
+	printf("The vp300 is a USB interface lidar, supporting various baud rates, bps is recommended.\n");
+	printf("vp350 is a serial interface lidar, supporting only 512000bps.\n\n");
+
+	//vp300 lidar is USB-CDC,can use any baudrate.best 921600bps,
+	//vp350 must be 512000bps
 	//init para,the network para is different with serialport  
-#if 1
-	nvilidar::LidarProcess lidar(USE_SERIALPORT,"/dev/nvilidar",921600);
-#else 
-	nvilidar::LidarProcess lidar(USE_SOCKET, "192.168.1.200", 8100);
-#endif 
+	#if 1
+		nvilidar::LidarProcess lidar(USE_SERIALPORT,"/dev/nvilidar",512000);
+	#else 
+		nvilidar::LidarProcess lidar(USE_SOCKET, "192.168.1.200", 8100); 
+	#endif 
 
 	//init lidar,include sync lidar para 
 	if (false == lidar.LidarInitialialize())		

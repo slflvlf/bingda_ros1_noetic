@@ -7,7 +7,7 @@
 #include "nvilidar_def.h"
 
 using namespace nvilidar;
-#define ROSVerision "1.0.8"
+#define ROSVerision "1.0.9"
 
 
 int main(int argc, char * argv[]) 
@@ -27,11 +27,10 @@ int main(int argc, char * argv[])
     ros::NodeHandle nh_private("~");
 
     Nvilidar_UserConfigTypeDef cfg;
-    bool use_socket = false;        //默认不用socket 
 
-    //读取雷达配置 从rviz文件内 如果里面有配置对应参数  则走里面的数据。如果没有，则直接取函数第3个默认参数配置信息
+    //sync para form rviz 
     nh_private.param<std::string>("serialport_name", cfg.serialport_name, "dev/nvilidar"); 
-    nh_private.param<int>("serialport_baud", cfg.serialport_baud, 921600);
+    nh_private.param<int>("serialport_baud", cfg.serialport_baud, 512000);
     nh_private.param<std::string>("ip_addr", cfg.ip_addr, "192.168.1.200");  
     nh_private.param<int>("lidar_udp_port", cfg.lidar_udp_port, 8100); 
     nh_private.param<int>("config_tcp_port", cfg.config_tcp_port, 8200); 
@@ -43,38 +42,38 @@ int main(int argc, char * argv[])
     nh_private.param<double>("angle_max", cfg.angle_max , 180.0);
     nh_private.param<double>("angle_min", cfg.angle_min , -180.0);
     nh_private.param<double>("range_max", cfg.range_max , 64.0);
-    nh_private.param<double>("range_min", cfg.range_min , 0.0);
+    nh_private.param<double>("range_min", cfg.range_min , 0.001);
     nh_private.param<double>("aim_speed", cfg.aim_speed , 10.0);
     nh_private.param<int>("sampling_rate", cfg.sampling_rate, 10000);
     nh_private.param<bool>("sensitive",      cfg.sensitive, false);
     nh_private.param<int>("tailing_level",  cfg.tailing_level, 6);
+    nh_private.param<bool>("angle_offset_change_flag",cfg.angle_offset_change_flag,false);
     nh_private.param<double>("angle_offset",  cfg.angle_offset, 0.0);
     nh_private.param<bool>("apd_change_flag",  cfg.apd_change_flag, false);
     nh_private.param<int>("apd_value",  cfg.apd_value, 500);
-    nh_private.param<bool>("single_channel",  cfg.single_channel, false);
     nh_private.param<std::string>("ignore_array_string",  cfg.ignore_array_string, "");
-    //过滤参数
+    //filter 
     nh_private.param<bool>("filter_jump_enable",  cfg.filter_jump_enable, true);
     nh_private.param<int>("filter_jump_value_min",  cfg.filter_jump_value_min, 3);
     nh_private.param<int>("filter_jump_value_max",  cfg.filter_jump_value_max, 50);
 
-    //更新数据 用网络或者串口 
+    //choice use serialport or socket 
     #if 1
         nvilidar::LidarProcess laser(USE_SERIALPORT,cfg.serialport_name,cfg.serialport_baud);
     #else 
         nvilidar::LidarProcess laser(USE_SOCKET,cfg.ip_addr, cfg.lidar_udp_port);
     #endif 
 
-    //根据配置 重新加载参数 
+    //reload lidar parameter 
     laser.LidarReloadPara(cfg);
 
     ROS_INFO("[NVILIDAR INFO] Now NVILIDAR ROS SDK VERSION:%s .......", ROSVerision);
 
-    //初始化 变量定义 
+    //lidar init
     bool ret = laser.LidarInitialialize();
     if (ret) 
     {
-        //启动雷达 
+        //turn on the lidar 
         ret = laser.LidarTurnOn();
         if (!ret) 
         {
@@ -96,6 +95,7 @@ int main(int argc, char * argv[])
             {
                 sensor_msgs::LaserScan scan_msg;
                 ros::Time start_scan_time;
+                int avaliable_count = 0;
                 start_scan_time.sec = scan.stamp/1000000000ul;
                 start_scan_time.nsec = scan.stamp%1000000000ul;
                 scan_msg.header.stamp = start_scan_time;
@@ -109,14 +109,27 @@ int main(int argc, char * argv[])
                 scan_msg.range_max = (scan.config.max_range);
                 int size = (scan.config.max_angle - scan.config.min_angle)/ scan.config.angle_increment + 1;
                 
+                scan_msg.ranges.clear();
                 scan_msg.ranges.resize(size);
+                scan_msg.intensities.clear();
                 scan_msg.intensities.resize(size);
+                avaliable_count = 0;
                 for(int i=0; i < scan.points.size(); i++) {
                     int index = std::ceil((scan.points[i].angle - scan.config.min_angle)/scan.config.angle_increment);
-                    if(index >=0 && index < size) 
+                    if((index >=0) && (index < size)) 
                     {
+                        avaliable_count++;
+
                         scan_msg.ranges[index] = scan.points[i].range;
                         scan_msg.intensities[index] = scan.points[i].intensity;
+                    }
+                }
+                if(cfg.resolution_fixed){   //fix counts  
+                    if(size > avaliable_count){
+                        for(int j = avaliable_count; j<size; j++){
+                            scan_msg.ranges[j] = 0;
+                            scan_msg.intensities[j] = 0;
+                        }
                     }
                 }
                 scan_pub.publish(scan_msg);
@@ -126,7 +139,7 @@ int main(int argc, char * argv[])
                 ROS_WARN("Lidar Data Invalid!");
             }
         }  
-        else        //未收到数据  超过15次  则报错 
+        else        //can't receive lidar data for 15 times,reconnect 
         {
             ROS_ERROR("Failed to get Lidar Data!");
             break;

@@ -7,11 +7,38 @@
 #include <string.h>  /* String function definitions */
 #include <termios.h> /* POSIX terminal control definitions */
 #include <unistd.h>  /* UNIX standard function definitions */
-
+#include <fcntl.h>
+#include <err.h>
+#include <linux/serial.h>
 #include <sys/ioctl.h> //ioctl
 
 namespace nvilidar_serial
 {
+    // linux/include/uapi/asm-generic/termbits.h
+    struct termios2 {
+        tcflag_t c_iflag;       /* input mode flags */
+        tcflag_t c_oflag;       /* output mode flags */
+        tcflag_t c_cflag;       /* control mode flags */
+        tcflag_t c_lflag;       /* local mode flags */
+        cc_t c_line;            /* line discipline */
+        cc_t c_cc[19];          /* control characters */
+        speed_t c_ispeed;       /* input speed */
+        speed_t c_ospeed;       /* output speed */
+    };
+
+    #ifndef TCGETS2
+    #define TCGETS2     _IOR('T', 0x2A, struct termios2)
+    #endif
+
+    #ifndef TCSETS2
+    #define TCSETS2     _IOW('T', 0x2B, struct termios2)
+    #endif
+
+    #ifndef BOTHER
+    #define BOTHER      0010000
+    #endif
+
+
     Nvilidar_Serial::Nvilidar_Serial()
     {
 
@@ -36,165 +63,32 @@ namespace nvilidar_serial
     }
 
     //设置串口参数  
-    int Nvilidar_Serial::serialSetpara(int fd,int baudRate,int parity,int dataBits,
+    bool Nvilidar_Serial::serialSetpara(int fd,int baudRate,int parity,int dataBits,
                  int stopbits,int flowControl)
     {
-        struct termios options;
+        struct termios tio;
 
-        //获取终端属性
-        if (tcgetattr(fd, &options) < 0)
-        {
-            perror("tcgetattr error");
-            return -1;
+        ::memset(&tio, 0, sizeof(termios));
+        if (::tcgetattr(fd, &tio) == -1) {
+            return false;
         }
 
-        //设置输入输出波特率
-        int baudRateConstant = 0;
-        baudRateConstant = rate2UnixBaud(baudRate);
+        SetCommonProps(&tio);
+        setDataBits(fd,&tio,dataBits);
+        setParity(fd,&tio,parity);
+        setStopBits(fd,&tio,stopbits);
+        setFlowControl(fd,&tio,flowControl);
 
-        if (0 != baudRateConstant)
-        {
-            cfsetispeed(&options, baudRateConstant);
-            cfsetospeed(&options, baudRateConstant);
-        }
-        else
-        {
-            // TODO: custom baudrate
-            fprintf(stderr, "Unkown baudrate!\n");
-            return -1;
-        }
+        if (::tcsetattr(fd, TCSANOW, &tio) == -1) {
+            return false;
+        } 
 
-        //设置校验位
-        switch (parity)
-        {
-            /*无奇偶校验位*/
-            case ParityNone:
-            case 'N':
-                options.c_cflag &= ~PARENB; // PARENB：产生奇偶位，执行奇偶校验
-                options.c_cflag &= ~INPCK;  // INPCK：使奇偶校验起作用
-                break;
-            /*设置奇校验*/
-            case ParityOdd:
-                options.c_cflag |= PARENB; // PARENB：产生奇偶位，执行奇偶校验
-                options.c_cflag |= PARODD; // PARODD：若设置则为奇校验,否则为偶校验
-                options.c_cflag |= INPCK;  // INPCK：使奇偶校验起作用
-                options.c_cflag |= ISTRIP; // ISTRIP：若设置则有效输入数字被剥离7个字节，否则保留全部8位
-                break;
-            /*设置偶校验*/
-            case ParityEven:
-                options.c_cflag |= PARENB;  // PARENB：产生奇偶位，执行奇偶校验
-                options.c_cflag &= ~PARODD; // PARODD：若设置则为奇校验,否则为偶校验
-                options.c_cflag |= INPCK;   // INPCK：使奇偶校验起作用
-                options.c_cflag |= ISTRIP; // ISTRIP：若设置则有效输入数字被剥离7个字节，否则保留全部8位
-                break;
-                /*设为空格,即停止位为2位*/
-            case ParitySpace:
-                options.c_cflag &= ~PARENB; // PARENB：产生奇偶位，执行奇偶校验
-                options.c_cflag &= ~CSTOPB; // CSTOPB：使用两位停止位
-                break;
-            default:
-                fprintf(stderr, "Unkown parity!\n");
-                return -1;
+        //set baud 
+        if (!setBaudRate(baudRate)){
+            return false;
         }
 
-        //设置数据位
-        switch (dataBits)
-        {
-            case DataBits5:
-                options.c_cflag &= ~CSIZE; //屏蔽其它标志位
-                options.c_cflag |= CS5;
-                break;
-            case DataBits6:
-                options.c_cflag &= ~CSIZE; //屏蔽其它标志位
-                options.c_cflag |= CS6;
-                break;
-            case DataBits7:
-                options.c_cflag &= ~CSIZE; //屏蔽其它标志位
-                options.c_cflag |= CS7;
-                break;
-            case DataBits8:
-                options.c_cflag &= ~CSIZE; //屏蔽其它标志位
-                options.c_cflag |= CS8;
-                break;
-            default:
-                fprintf(stderr, "Unkown bits!\n");
-                return -1;
-        }
-
-        //停止位
-        switch (stopbits)
-        {
-            case StopOne:
-                options.c_cflag &= ~CSTOPB; // CSTOPB：使用两位停止位
-                break;
-            case StopOneAndHalf:
-                fprintf(stderr, "POSIX does not support 1.5 stop bits!\n");
-                return -1;
-            case StopTwo:
-                options.c_cflag |= CSTOPB; // CSTOPB：使用两位停止位
-                break;
-            default:
-                fprintf(stderr, "Unkown stop!\n");
-                return -1;
-        }
-
-        //控制模式
-        options.c_cflag |= CLOCAL; //保证程序不占用串口
-        options.c_cflag |= CREAD;  //保证程序可以从串口中读取数据
-
-        //流控制
-        switch (flowControl)
-        {
-            case FlowNone: ///< No flow control 无流控制
-                options.c_cflag &= ~CRTSCTS;
-                break;
-            case FlowHardware: ///< Hardware(RTS / CTS) flow control 硬件流控制
-                options.c_cflag |= CRTSCTS;
-                break;
-            case FlowSoftware: ///< Software(XON / XOFF) flow control 软件流控制
-                options.c_cflag |= IXON | IXOFF | IXANY;
-                break;
-            default:
-                fprintf(stderr, "Unkown c_flow!\n");
-                return -1;
-        }
-
-        //设置输出模式为原始输出
-        options.c_oflag &= ~OPOST; // OPOST：若设置则按定义的输出处理，否则所有c_oflag失效
-
-        //设置本地模式为原始模式
-        options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-        /*
-        *ICANON：允许规范模式进行输入处理
-        *ECHO：允许输入字符的本地回显
-        *ECHOE：在接收EPASE时执行Backspace,Space,Backspace组合
-        *ISIG：允许信号
-        */
-
-        options.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-        /*
-        *BRKINT：如果设置了IGNBRK，BREAK键输入将被忽略
-        *ICRNL：将输入的回车转化成换行（如果IGNCR未设置的情况下）(0x0d => 0x0a)
-        *INPCK：允许输入奇偶校验
-        *ISTRIP：去除字符的第8个比特
-        *IXON：允许输出时对XON/XOFF流进行控制 (0x11 0x13)
-        */
-
-        //设置等待时间和最小接受字符
-        options.c_cc[VTIME] = 0; //可以在select中设置
-        options.c_cc[VMIN] = 1;  //最少读取一个字符
-
-        //如果发生数据溢出，只接受数据，但是不进行读操作
-        tcflush(fd, TCIFLUSH);
-
-        //激活配置
-        if (tcsetattr(fd, TCSANOW, &options) < 0)
-        {
-            perror("tcsetattr failed");
-            return -1;
-        }
-
-        return 0;
+        return true;
     }
 
     //打开串口 
@@ -210,7 +104,7 @@ namespace nvilidar_serial
             if (fcntl(fd, F_SETFL, 0) >= 0) // 阻塞，即使前面在open串口设备时设置的是非阻塞的，这里设为阻塞后，以此为准
             {
                 // set param
-                if (serialSetpara(fd, m_baudRate, m_parity, m_dataBits, m_stopbits, m_flowControl) == -1)
+                if (!serialSetpara(fd, m_baudRate, m_parity, m_dataBits, m_stopbits, m_flowControl))
                 {
                     fprintf(stderr, "uart set failed!\n");
                     // exit(EXIT_FAILURE);
@@ -305,17 +199,232 @@ namespace nvilidar_serial
         return iRet;
     }
 
-    //串口刷新  
+    //serialport flush 
     void Nvilidar_Serial::serialFlush()
     {
-        //清空读写 
         if (isSerialOpen())
         {
             tcflush(fd,TCIOFLUSH);
         }
     }
 
-    //波特率转换 
+    //set standard baudrate 
+    bool Nvilidar_Serial::setStandardBaudRate(int fd,int baud_unix){
+
+        // try to clear custom baud rate, using termios v2
+        struct termios2 tio2;
+        if (::ioctl(fd, TCGETS2, &tio2) != -1) {
+            if (tio2.c_cflag & BOTHER) {
+                tio2.c_cflag &= ~BOTHER;
+                tio2.c_cflag |= CBAUD;
+                ::ioctl(fd, TCSETS2, &tio2);
+            }
+        }
+
+        // try to clear custom baud rate, using serial_struct (old way)
+        struct serial_struct serial;
+        ::memset(&serial, 0, sizeof(serial));
+        if (::ioctl(fd, TIOCGSERIAL, &serial) != -1) {
+            if (serial.flags & ASYNC_SPD_CUST) {
+                serial.flags &= ~ASYNC_SPD_CUST;
+                serial.custom_divisor = 0;
+                // we don't check on errors because a driver can has not this feature
+                ::ioctl(fd, TIOCSSERIAL, &serial);
+            }
+        }
+
+        struct termios tio;
+        ::memset(&tio, 0, sizeof(termios));
+        if (::tcgetattr(fd, &tio) == -1) {
+            return false;
+        }
+        //set standard baudrate 
+        if(cfsetispeed(&tio, baud_unix) < 0){
+            return false;
+        }
+        if(cfsetospeed(&tio, baud_unix) < 0){
+            return false;
+        }
+
+        return false;
+    }
+
+    //set  custom baudrate 
+    bool Nvilidar_Serial::setCustomBaudRate(int fd,int baud){
+        struct termios2 tio2;
+
+        if (::ioctl(fd, TCGETS2, &tio2) != -1) {
+            tio2.c_cflag &= ~CBAUD;
+            tio2.c_cflag |= BOTHER;
+
+            tio2.c_ispeed = baud;
+            tio2.c_ospeed = baud;
+
+            if (::ioctl(fd, TCSETS2, &tio2) != -1
+                    && ::ioctl(fd, TCGETS2, &tio2) != -1) {
+                return true;
+            }
+        }
+
+        struct serial_struct serial;
+        if (::ioctl(fd, TIOCGSERIAL, &serial) == -1) {
+            return false;
+        }
+
+        serial.flags &= ~ASYNC_SPD_MASK;
+        serial.flags |= (ASYNC_SPD_CUST /* | ASYNC_LOW_LATENCY*/);
+        serial.custom_divisor = serial.baud_base / baud;
+
+        if (serial.custom_divisor == 0) {
+            return false;
+        }
+
+        if (serial.custom_divisor * baud != serial.baud_base) {
+            return false;
+        }
+
+        if (::ioctl(fd, TIOCSSERIAL, &serial) == -1) {
+            return false;
+        }
+
+        return setStandardBaudRate(fd,B38400);
+    }
+
+    //set baudrate 
+    bool Nvilidar_Serial::setBaudRate(int baudRate){
+        //set baudrate 
+        int baudRateConstant = 0;
+        baudRateConstant = rate2UnixBaud(baudRate);
+        if (0 != baudRateConstant)
+        {
+            if(false == setStandardBaudRate(fd,baudRateConstant)){
+                return false;
+            }
+        }
+        else
+        {
+            if(false == setCustomBaudRate(fd,baudRate)){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    //set databits 
+    void Nvilidar_Serial::setDataBits(int fd,struct termios *tio,int databits){
+
+        tio->c_cflag &= ~CSIZE;
+
+        switch (databits) {
+        case DataBits5:
+            tio->c_cflag |= CS5;
+            break;
+        case DataBits6:
+            tio->c_cflag |= CS6;
+            break;
+        case DataBits7:
+            tio->c_cflag |= CS7;
+            break;
+        case DataBits8:
+            tio->c_cflag |= CS8;
+            break;
+        default:
+            tio->c_cflag |= CS8;
+            break;
+        }
+    }
+
+    //set parity 
+    void Nvilidar_Serial::setParity(int fd,struct termios *tio,int parity)
+    {
+        tio->c_iflag &= ~(PARMRK | INPCK);
+        tio->c_iflag |= IGNPAR;
+
+        switch (parity) {
+            #ifdef CMSPAR
+                // Here Installation parity only for GNU/Linux where the macro CMSPAR.
+                case ParitySpace:{
+                    tio->c_cflag &= ~PARODD;
+                    tio->c_cflag |= PARENB | CMSPAR;
+                    break;
+                }
+                case ParityMark:{
+                    tio->c_cflag |= PARENB | CMSPAR | PARODD;
+                    break;
+                }
+            #endif
+            case ParityNone:{
+                tio->c_cflag &= ~PARENB;
+                break;
+            }
+            case ParityEven:{
+                tio->c_cflag &= ~PARODD;
+                tio->c_cflag |= PARENB;
+                break;
+            }
+            case ParityOdd:{
+                tio->c_cflag |= PARENB | PARODD;
+                break;
+            }
+            default:{
+                tio->c_cflag |= PARENB;
+                tio->c_iflag |= PARMRK | INPCK;
+                tio->c_iflag &= ~IGNPAR;
+                break;
+            }
+        }
+    }
+
+    //set stopbits 
+    void Nvilidar_Serial::setStopBits(int fd,struct termios *tio,int stopBits){
+        switch (stopBits) {
+        case StopOne:
+            tio->c_cflag &= ~CSTOPB;
+            break;
+        case StopTwo:
+            tio->c_cflag |= CSTOPB;
+            break;
+        default:
+            tio->c_cflag &= ~CSTOPB;
+            break;
+        }
+
+    }
+
+    //set flowcontrol 
+    void Nvilidar_Serial::setFlowControl(int fd,struct termios *tio,int flowcontrol){
+        switch (flowcontrol) {
+            case FlowNone:
+                tio->c_cflag &= ~CRTSCTS;
+                tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+                break;
+            case FlowHardware:
+                tio->c_cflag |= CRTSCTS;
+                tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+                break;
+            case FlowSoftware:
+                tio->c_cflag &= ~CRTSCTS;
+                tio->c_iflag |= IXON | IXOFF | IXANY;
+                break;
+            default:
+                tio->c_cflag &= ~CRTSCTS;
+                tio->c_iflag &= ~(IXON | IXOFF | IXANY);
+                break;
+        } 
+    }
+
+    //set CommonProps 
+    void Nvilidar_Serial::SetCommonProps(termios *tio){
+        ::cfmakeraw(tio);
+
+        tio->c_cflag |= CLOCAL;
+        tio->c_cc[VTIME] = 0;
+        tio->c_cc[VMIN] = 0;
+
+        tio->c_cflag |= CREAD;
+    }
+
+    //baud change to standard baudrate 
     int Nvilidar_Serial::rate2UnixBaud(int baudrate)
     {
         // https://jim.sh/ftx/files/linux-custom-baudrate.c

@@ -6,94 +6,98 @@
 #include <string>
 
 
-//======================================基本参数类型定义============================================ 
+//======================================basic parameter============================================ 
 
-//SDK版本号 
-#define NVILIDAR_SDKVerision     "1.0.8"
+//SDK version 
+#define NVILIDAR_SDKVerision     "1.0.9"
 
 //PI def
 #ifndef M_PI
 #define M_PI        3.14159265358979323846
 #endif 
 
-//其它
-#define NVILIDAR_DEFAULT_TIMEOUT     2000    //默认超时时间 正常协议  
-#define NVILIDAR_POINT_TIMEOUT		 2000	 //一圈点云的超时时间 比如10hz 则该超时时间需要大于100ms 才可以保证不会出错 
+//other 
+#define NVILIDAR_DEFAULT_TIMEOUT     2000    //default timeout 
+#define NVILIDAR_POINT_TIMEOUT		 2000	 //one circle time  for example, the lidar speed is 10hz ,the timeout must smaller the 100ms
 
 
-//雷达型号
-enum
+//lidar model  list 
+typedef enum
 {
-   NVILIDAR_VP300      = 1,
-   NVILIDAR_Tail,
-};
+	NVILIDAR_Unknow = 0,		//unknow lidar 
+   	NVILIDAR_VP300,				//lidar VP300
+	NVILIDAR_VP350,				//lidar VP350
+   	NVILIDAR_Tail,
+}LidarModelListEnumTypeDef;
 
 
-//======================================基本数据类型定义============================================ 
+//======================================other parameters============================================ 
 
-//雷达信息
+//lidar current state 
 struct Nvilidar_PackageStateTypeDef
 {
-	bool m_CommOpen;              //串口开启标记
-	bool m_Scanning;                //正在扫描出图
-	uint8_t last_device_byte;       //上包接到的字节信息
+	bool m_CommOpen;              	//serialport open flag 
+	bool m_Scanning;                //lidar is scanning data 
+	uint8_t last_device_byte;       //last byte 
 };
 
-//雷达本身参数信息 (存储在雷达内部)
+//stored para for lidar
 struct  Nvilidar_StoreConfigTypeDef
 {
-	uint8_t     isHasSensitive;         //有信号质量信息
-	uint16_t    aimSpeed;               //转速信息 x100
-	uint32_t    samplingRate;           //采样率x1
-	int16_t     angleOffset;            //角度偏移x64
-	uint8_t     tailingLevel;           //拖尾等级
-	uint16_t    apdValue;				//apd值 
+	uint8_t     isHasSensitive;         //has sensitive 
+	uint16_t    aimSpeed;               //motor aim speed == x100
+	uint32_t    samplingRate;           //sampling rate == x1
+	int16_t     angleOffset;            //angle offset == x64
+	uint8_t     tailingLevel;           //tailling level 0-max 20-min
+	uint16_t    apdValue;				//apd value 
 };
 
 //数据信息 
 struct Nvilidar_DeviceInfo
 {
-	std::string m_SoftVer;				//软件版本号 
-	std::string m_HardVer;				//硬件版本号 
-	std::string m_ProductName;			//产品名称  
-	std::string m_SerialNum;			//序列号 
+	std::string m_SoftVer;				//software version
+	std::string m_HardVer;				//hardware version
+	std::string m_ProductName;			//product name 
+	std::string m_SerialNum;			//serialnumber 
 };
 
 //雷达配置参数
 struct  Nvilidar_UserConfigTypeDef
 {
+	LidarModelListEnumTypeDef  lidar_model_name;	//lidar model name 
+
 	std::string frame_id;				//ID
-	std::string serialport_name;		//串口名 
-	int    		serialport_baud;		//串口波特率 
-	std::string ip_addr;				//IP地址 
-	int    		lidar_udp_port;			//端口号 
-	int    		config_tcp_port;		//配置端口号 
-	bool		auto_reconnect;			//自动重连
-    bool		reversion;				//倒置 反180度
-	bool		inverted;				//镜像 左右反相 
-	double		angle_max;				//最大角度值 
-	double		angle_min;				//最小角度值 
-	double		range_max;				//最小值  盲区 
-	double		range_min;				//最大值  盲区 
-	double 		aim_speed;				//转速  
-	int			sampling_rate;			//采样率 
-	bool		sensitive;				//是否带信号质量 
-	int			tailing_level;			//拖尾等级 
-	bool		apd_change_flag;		//是否允许修改apd值 
-	int			apd_value;				//预设的apd值 
-	double 		angle_offset;			//角度偏移 
-	bool     	single_channel;        	//单通道通信
+	std::string serialport_name;		//serialport name 
+	int    		serialport_baud;		//serialport baudrate 
+	std::string ip_addr;				//ip addr for net convert
+	int    		lidar_udp_port;			//ip port for net convert
+	int    		config_tcp_port;		//ip port for config net para 
+	bool		auto_reconnect;			//auto reconnect 
+    bool		reversion;				//add 180.0 
+	bool		inverted;				//turn backwards(if it is true)
+	double		angle_max;				//angle max value for lidar 
+	double		angle_min;				//angle min value for lidar  
+	double		range_max;				//measure distance max value for lidar  
+	double		range_min;				//measure distance min value for lidar  
+	double 		aim_speed;				//lidar aim speed   
+	int			sampling_rate;			//sampling rate  
+	bool		sensitive;				//is contain sensitive  
+	int			tailing_level;			//tailling level  
+	bool		apd_change_flag;		//is enable to change apd value  
+	int			apd_value;				//default apd value 
+	bool 		angle_offset_change_flag;  //is enable to change angle offset 
+	double 		angle_offset;			//angle offset 
 
-	std::string ignore_array_string;	//过滤的部分 输入字符串 
-	std::vector<float> ignore_array;	//过滤的部分 解后的容器信息 
+	std::string ignore_array_string;	//filter angle ,string,like ,
+	std::vector<float> ignore_array;	//filter angle to array list 
 
-	bool 		resolution_fixed;		//是否固定角分辨率 
-	Nvilidar_DeviceInfo			deviceInfo;	//数据信息 
-	Nvilidar_StoreConfigTypeDef	storePara;	//存储的参数信息 
+	bool 		resolution_fixed;		//is good resolution  
+	Nvilidar_DeviceInfo			deviceInfo;	//lidar info 
+	Nvilidar_StoreConfigTypeDef	storePara;	//lidar needed to store  
 
-	bool 		filter_jump_enable;		//是否允许过滤 
-	int 		filter_jump_value_min;	//过滤点最小值 
-	int 		filter_jump_value_max;	//过滤点最大值 
+	bool 		filter_jump_enable;		//is needed to filter jump point 
+	int 		filter_jump_value_min;	//filter min value 
+	int 		filter_jump_value_max;	//filter max value
 };
 
 //共用体
@@ -147,9 +151,9 @@ typedef struct
 //一圈点信息 
 typedef struct
 {
-	uint64_t  startStamp;			//一圈起始时间戳 
-	uint64_t  stopStamp;			//一圈结束时间戳 
-	std::vector<Nvilidar_Node_Info>  lidarCircleNodePoints;	//一圈点云图数据
+	uint64_t  startStamp;			//One Lap Start Timestamp 
+	uint64_t  stopStamp;			//One Lap Stop Timestamp 
+	std::vector<Nvilidar_Node_Info>  lidarCircleNodePoints;	//lidar point data
 }CircleDataInfoTypeDef;
 
 

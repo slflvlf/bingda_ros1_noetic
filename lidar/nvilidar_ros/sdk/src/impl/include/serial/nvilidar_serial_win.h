@@ -16,27 +16,27 @@
 
 //串口信息宏定义 
 //校验 
-#define ParityNone  0  ///< No Parity 无校验
-#define ParityOdd   1   ///< Odd Parity 奇校验
-#define ParityEven  2  ///< Even Parity 偶校验
-#define ParityMark  3  ///< Mark Parity 1校验
-#define ParitySpace  4 ///< Space Parity 0校验
+#define ParityNone  0  ///< No Parity 
+#define ParityOdd   1   ///< Odd Parity 
+#define ParityEven  2  ///< Even Parity
+#define ParityMark  3  ///< Mark Parity 
+#define ParitySpace  4 ///< Space Parity 
 
 //数据位
-#define DataBits5  5 ///< 5 data bits 5位数据位
-#define DataBits6  6 ///< 6 data bits 6位数据位
-#define DataBits7  7 ///< 7 data bits 7位数据位
-#define DataBits8  8  ///< 8 data bits 8位数据位
+#define DataBits5  5 ///< 5 data bits 
+#define DataBits6  6 ///< 6 data bits 
+#define DataBits7  7 ///< 7 data bits 
+#define DataBits8  8  ///< 8 data bits 
 
 //停止位
-#define	StopOne  0        ///< 1 stop bit 1位停止位
-#define	StopOneAndHalf 1 ///< 1.5 stop bit 1.5位停止位 - This is only for the Windows platform
-#define	StopTwo   2         ///< 2 stop bit 2位停止位
+#define	StopOne  0        ///< 1 stop bit 
+#define	StopOneAndHalf 1 ///< 1.5 stop bit  - This is only for the Windows platform
+#define	StopTwo   2         ///< 2 stop bit 
 
 //流控
-#define FlowNone  0    ///< No flow control 无流控制
-#define FlowHardware  1 ///< Hardware(RTS / CTS) flow control 硬件流控制
-#define FlowSoftware  2  ///< Software(XON / XOFF) flow control 软件流控制
+#define FlowNone  0    ///< No flow control 
+#define FlowHardware  1 ///< Hardware(RTS / CTS) flow control 
+#define FlowSoftware  2  ///< Software(XON / XOFF) flow control 
 
 namespace nvilidar_serial
 {
