@@ -1,3 +1,0 @@
-<launch>
-    <node pkg="bingda_tutorials" name="listener" type="tutorials_listener" output="screen" respawn="true"/>
-</launch>
