@@ -85,14 +85,17 @@ class line_follow:
             # in normal mode,add mask to original image
             # res = cv2.bitwise_and(cv_image,cv_image,mask=mask)
             for i in range(-60,100,20):
-                point = np.nonzero(mask[mask.shape[0]/2 + i])             
+                point = np.nonzero(mask[int(mask.shape[0]/2 + i)])             
                 if len(point[0]) > 10:
                     self.center_point = int(np.mean(point))
-                    cv2.circle(res, (self.center_point,hsv_image.shape[0]/2+i), 5, (0,0,255), 5)
+                    cv2.circle(res, (self.center_point,int(hsv_image.shape[0]/2+i)), 5, (0,0,255), 5)
                     break
-        if self.center_point:
-            self.twist_calculate(hsv_image.shape[1]/2,self.center_point)
-        self.center_point = 0
+        try:
+            if self.center_point:
+                self.twist_calculate(hsv_image.shape[1]/2,self.center_point)
+            self.center_point = 0
+        except:
+            pass
 
 
         # show CV image in debug mode(need display device)

@@ -1,5 +1,6 @@
 <launch>
-
+    <!--robot bast type use different tf value-->
+    <arg name="base_type"       default="$(env BASE_TYPE)" />
     <!-- support multi robot -->
     <arg name="robot_name" default=""/>   <!-- support multi robot -->
     <!-- robot frame -->
@@ -16,7 +17,8 @@
     <!-- config param -->
     <arg name="pub_imu"       default="False" />
     <arg name="sub_ackermann"       default="False" />
-    <arg name="pub_sonar"       default="False" />
+    <arg name="pub_sonar"       default="False" />  
+    <arg name="use_ekf"       default="False" />
     <!-- base control node -->
 
 <!--ros namespace name can NOT be empty,so need evaluate use multi robot or not-->
@@ -40,8 +42,30 @@
         <param name="pub_sonar" value="$(arg pub_sonar)"/> <!-- pub sonar topic or not -->
         
         <param name="sub_ackermann" value="$(arg sub_ackermann)"/> <!-- sub ackermann topic or not -->
+        <param name="boardcast_odom_tf" value="True" unless="$(arg use_ekf)"/>
+        <param name="boardcast_odom_tf" value="False" if="$(arg use_ekf)"/>
+        <param name="pub_imu" value="True" if="$(arg use_ekf)"/>
     </node>
-</group>-->
+
+    <node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf" output="log" if="$(arg use_ekf)">
+        <param name="output_frame" value="$(arg odom_frame)"/>
+        <param name="base_footprint_frame" value="$(arg robot_name)/$(arg base_frame)"/>
+        <param name="freq" value="50.0"/>
+        <param name="sensor_timeout" value="1.0"/>
+        <param name="odom_used" value="true"/>
+        <param name="imu_used" value="true"/>
+        <param name="vo_used" value="false"/>
+        <param name="debug" value="false"/>
+        <param name="self_diagnose" value="false"/>
+        <remap from="/imu_data" to="$(arg imu_topic)"/>
+    </node>
+
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot_Pro')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.01 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoCar')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.01 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoCar_Pro')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="-0.03 0.04 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoOmni')"/>
+</group>
 
 <group unless="$(eval robot_name == '')">
     <group ns="$(arg robot_name)">
@@ -63,7 +87,29 @@
             <param name="pub_imu" value="$(arg pub_imu)"/> <!-- pub imu topic or not -->
             <param name="pub_sonar" value="$(arg pub_sonar)"/> <!-- pub sonar topic or not -->
             <param name="sub_ackermann" value="$(arg sub_ackermann)"/> <!-- sub ackermann topic or not -->
+            <param name="boardcast_odom_tf" value="True" unless="$(arg use_ekf)"/>
+            <param name="boardcast_odom_tf" value="False" if="$(arg use_ekf)"/>
+            <param name="pub_imu" value="True" if="$(arg use_ekf)"/>
         </node>
+
+        <node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf" output="log" if="$(arg use_ekf)">
+            <param name="output_frame" value="$(arg robot_name)/$(arg odom_frame)"/>
+            <param name="base_footprint_frame" value="$(arg robot_name)/$(arg base_frame)"/>
+            <param name="freq" value="50.0"/>
+            <param name="sensor_timeout" value="1.0"/>
+            <param name="odom_used" value="true"/>
+            <param name="imu_used" value="true"/>
+            <param name="vo_used" value="false"/>
+            <param name="debug" value="false"/>
+            <param name="self_diagnose" value="false"/>
+            <remap from="/imu_data" to="$(arg imu_topic)"/>
+        </node>    
+    <!-- x y z yaw pitch roll frame_id child_frame_id period_in_ms -->
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot_Pro')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.01 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoCar')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.01 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoCar_Pro')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="-0.03 0.04 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoOmni')"/>
     </group>
 </group>
 
