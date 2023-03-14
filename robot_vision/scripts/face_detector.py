@@ -17,7 +17,7 @@ class faceDetector:
         # 获取haar特征的级联表的XML文件，文件路径在launch文件中传入
         cascade_1 = rospy.get_param("~cascade_1", "")
         cascade_2 = rospy.get_param("~cascade_2", "")
-
+        print(cascade_1,cascade_2)
         # 使用级联表初始化haar特征检测器
         self.cascade_1 = cv2.CascadeClassifier(cascade_1)
         self.cascade_2 = cv2.CascadeClassifier(cascade_2)
