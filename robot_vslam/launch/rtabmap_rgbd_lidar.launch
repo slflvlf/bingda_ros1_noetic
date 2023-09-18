@@ -24,7 +24,7 @@
       <!-- <param name="approx_sync"       value="true"/> 
     </node> -->
 
-    <node name="rtabmap" pkg="rtabmap_ros" type="rtabmap" output="screen" args="$(arg args)">
+    <node name="rtabmap" pkg="rtabmap_slam" type="rtabmap" output="screen" args="$(arg args)">
           <param name="frame_id" type="string" value="base_footprint"/>
 
           <param name="subscribe_depth" type="bool" value="true"/>
