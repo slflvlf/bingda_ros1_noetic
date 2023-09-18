@@ -19,13 +19,14 @@
     <arg name="sub_ackermann"       default="False" />
     <arg name="pub_sonar"       default="False" />  
     <arg name="use_ekf"       default="False" />
+    <arg name="port"       default="move_base" />
     <!-- base control node -->
 
 <!--ros namespace name can NOT be empty,so need evaluate use multi robot or not-->
 <group if="$(eval robot_name == '')">
     <node name="base_control"   pkg="base_control"  type="base_control.py" output="screen">
         <param name="baudrate"   value="115200"/>  
-        <param name="port"  value="/dev/move_base"/>
+        <param name="port"  value="/dev/$(arg port)"/>
 
         <param name="base_id"    value="$(arg base_frame)"/> <!-- base_link name -->
         <param name="odom_id"    value="$(arg odom_frame)"/>      <!-- odom link name -->
@@ -105,11 +106,11 @@
             <remap from="/imu_data" to="$(arg imu_topic)"/>
         </node>    
     <!-- x y z yaw pitch roll frame_id child_frame_id period_in_ms -->
-    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot')"/>
+    <!-- <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot')"/>
     <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot_Pro')"/>
     <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.01 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoCar')"/>
     <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.01 0.0 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoCar_Pro')"/>
-    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="-0.03 0.04 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoOmni')"/>
+    <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="-0.03 0.04 0.08 0.0 0.0 0.0 '$(arg base_frame)' $(arg imu_frame) 20" if="$(eval base_type == 'NanoOmni')"/> -->
     </group>
 </group>
 

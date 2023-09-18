@@ -82,9 +82,9 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
       if (pnode.getParam("auto_exposure", auto_exposure)) {
         int val;
         if (auto_exposure) {
-          val = V4L2_EXPOSURE_AUTO;
+          val = 3;
         } else {
-          val = V4L2_EXPOSURE_MANUAL;
+          val = 3;
         }
         cam->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO, val, "auto_exposure");
       }

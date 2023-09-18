@@ -45,16 +45,6 @@
                 args="0.02225 0.0 0.10 0.0 0.0 0.0 $(arg base_id) $(arg camera_id) 20">
             </node>
         </group>
-        <group if="$(eval base_type == '4WD')">
-            <node pkg="tf" type="static_transform_publisher" name="base_footprint_to_camera"
-                args="0.1 0.02 0.25 0.0 0.0 0.0 $(arg base_id) $(arg camera_id) 20">
-            </node>
-        </group>
-        <group if="$(eval base_type == '4WD_OMNI')">
-            <node pkg="tf" type="static_transform_publisher" name="base_footprint_to_camera"
-                args="0.1 0.02 0.25 0.0 0.0 0.0 $(arg base_id) $(arg camera_id) 20">
-            </node>
-        </group>
         <group if="$(eval base_type == 'NanoCar')">
             <node pkg="tf" type="static_transform_publisher" name="base_footprint_to_camera"
                 args="0.1024 0.0 0.1 0.0 0.0 0.0 $(arg base_id) $(arg camera_id) 20">
@@ -70,16 +60,6 @@
                 args="0.140 0.023 0.093 0 0.0 0.0 $(arg base_id) $(arg camera_id) 20">
             </node>
         </group>
-        <group if="$(eval base_type == 'NanoCar_SE')">
-            <node pkg="tf" type="static_transform_publisher" name="base_footprint_to_camera"
-                args="0.140 0.023 0.093 0 0.0 0.0 $(arg base_id) $(arg camera_id) 20">
-            </node>
-        </group> 
-        <group if="$(eval base_type == 'Race182')">
-            <node pkg="tf" type="static_transform_publisher" name="base_footprint_to_camera"
-                args="0.180 0.023 0.168 0 0.0 0.0 $(arg base_id) $(arg camera_id) 20">
-            </node>
-        </group>  
         <group if="$(eval base_type == 'NanoOmni')">
             <node pkg="tf" type="static_transform_publisher" name="base_footprint_to_camera"
                 args="0.100 0.023 0.168 0 0.0 0.0 $(arg base_id) $(arg camera_id) 20">

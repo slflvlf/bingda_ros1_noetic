@@ -77,10 +77,10 @@ class line_follow:
         # if test mode,output the center point HSV value
         res = cv_image
         if self.test_mode:
-            cv2.circle(res, (int(hsv_image.shape[1]/2),int(hsv_image.shape[0]/2)), 5, (0,0,255), 1)
-            cv2.line(res,(int(hsv_image.shape[1]/2-10), int(hsv_image.shape[0]/2)), (int(hsv_image.shape[1]/2+10),int(hsv_image.shape[0]/2)), (0,0,255), 1)
-            cv2.line(res,(int(hsv_image.shape[1]/2), int(hsv_image.shape[0]/2-10)), (int(hsv_image.shape[1]/2), int(hsv_image.shape[0]/2+10)), (0,0,255), 1)
-            rospy.loginfo("Point HSV Value is %s"%hsv_image[int(hsv_image.shape[0]/2),int(hsv_image.shape[1]/2)])            
+            cv2.circle(res, (int(hsv_image.shape[1]/2),int(hsv_image.shape[0]/4*3)), 5, (0,0,255), 1)
+            cv2.line(res,(int(hsv_image.shape[1]/2-10), int(hsv_image.shape[0]/4*3)), (int(hsv_image.shape[1]/2+10),int(hsv_image.shape[0]/4*3)), (0,0,255), 1)
+            cv2.line(res,(int(hsv_image.shape[1]/2), int(hsv_image.shape[0]/4*3-10)), (int(hsv_image.shape[1]/2), int(hsv_image.shape[0]/4*3+10)), (0,0,255), 1)
+            rospy.loginfo("Point HSV Value is %s"%hsv_image[int(hsv_image.shape[0]/4*3),int(hsv_image.shape[1]/2)])            
         else:
             # in normal mode,add mask to original image
             # res = cv2.bitwise_and(cv_image,cv_image,mask=mask)
