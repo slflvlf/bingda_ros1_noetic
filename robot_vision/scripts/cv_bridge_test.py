@@ -18,7 +18,7 @@ class image_converter:
         try:
             cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
         except CvBridgeError as e:
-            print e
+            print(e)
 
         # 在opencv的显示窗口中绘制一个圆，作为标记
         (rows,cols,channels) = cv_image.shape
@@ -35,7 +35,7 @@ class image_converter:
             img_msg.header.stamp = rospy.Time.now()
             self.image_pub.publish(img_msg)
         except CvBridgeError as e:
-            print e
+            print(e)
 
 if __name__ == '__main__':
     try:
