@@ -206,6 +206,7 @@ int main(int argc, char * argv[]) {
     float max_distance;
     float scan_frequency;
     ros::NodeHandle nh;
+    ros::Duration(2.0).sleep();
     ros::Publisher scan_pub = nh.advertise<sensor_msgs::LaserScan>("scan", 1000);
     ros::NodeHandle nh_private("~");
     nh_private.param<std::string>("channel_type", channel_type, "serial");
