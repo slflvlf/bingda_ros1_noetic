@@ -1,0 +1,12 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/bingda/simulation_ws/devel/lib/python3/dist-packages",
+        "/home/bingda/noetic_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/bingda/simulation_ws/devel/lib/python3/dist-packages",
+        "/home/bingda/noetic_ws/devel/lib/python3/dist-packages",
+        "/opt/ros/noetic/lib/python3/dist-packages"
+    ]
+}

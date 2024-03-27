@@ -1,0 +1,33 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/bingda/simulation_ws/devel/include/**",
+        "/home/bingda/noetic_ws/devel/include/**",
+        "/opt/ros/noetic/include/**",
+        "/home/bingda/noetic_ws/src/bingda_ros1_noetic/depend_pkg/ros_astra_camera/include/**",
+        "/home/bingda/noetic_ws/src/bingda_ros1_noetic/depend_pkg/camera_umd/jpeg_streamer/include/**",
+        "/home/bingda/noetic_ws/src/bingda_ros1_noetic/lidar/ldlidar_stl_ros/include/**",
+        "/home/bingda/simulation_ws/src/common_package/LIO-SAM/include/**",
+        "/home/bingda/noetic_ws/src/ncnn_ros/include/**",
+        "/home/bingda/noetic_ws/src/rknn_ros/include/**",
+        "/home/bingda/simulation_ws/src/common_package/robotiq_gazebo/include/**",
+        "/home/bingda/noetic_ws/src/bingda_ros1_noetic/lidar/sc_mini/include/**",
+        "/home/bingda/noetic_ws/src/universal_robot/ur_kinematics/include/**",
+        "/home/bingda/noetic_ws/src/bingda_ros1_noetic/depend_pkg/camera_umd/uvc_camera/include/**",
+        "/home/bingda/simulation_ws/src/common_package/velodyne_simulator/velodyne_gazebo_plugins/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
