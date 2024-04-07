@@ -124,6 +124,7 @@ namespace sl {
         void setDTR(bool dtr)
         {
             dtr ? _rxtxSerial->setDTR() : _rxtxSerial->clearDTR();
+            // printf("Set DTR \r\n");
         }
 
         int getChannelType() {

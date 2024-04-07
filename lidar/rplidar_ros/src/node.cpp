@@ -357,7 +357,6 @@ int main(int argc, char * argv[]) {
         drv->setMotorSpeed(600);     
     }
 
-
     LidarScanMode current_scan_mode;
     if (scan_mode.empty()) {
         op_result = drv->startScan(false /* not force scan */, true /* use typical scan mode */, 0, &current_scan_mode);
@@ -401,6 +400,17 @@ int main(int argc, char * argv[]) {
     {
         ROS_ERROR("Can not start scan: %08x!", op_result);
     }
+
+    //start lidar rotate BingDa
+    if(!smart_control)
+    {
+        // printf("!smart_control\n");//TODO
+    }
+    else
+    {
+        // printf("IS Smart Lidar\n");
+        drv->setDTR(true);        
+    } 
 
     ros::Time start_scan_time;
     ros::Time end_scan_time;
@@ -480,6 +490,7 @@ int main(int argc, char * argv[]) {
                              angle_min, angle_max, max_distance,
                              frame_id);
             }
+ 
         }
 
         ros::spinOnce();

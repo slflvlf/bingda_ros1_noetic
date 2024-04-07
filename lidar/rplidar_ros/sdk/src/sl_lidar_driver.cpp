@@ -968,9 +968,11 @@ namespace sl {
         //TODO BingDa
         sl_result setDTR(bool dtr)
         {
+            //  printf("Not Come On\r\n");
             if (_transeiver->getBindedChannel()->getChannelType() == CHANNEL_TYPE_SERIALPORT) {
                 ISerialPortChannel* serialChanel = (ISerialPortChannel*)_transeiver->getBindedChannel();
-                serialChanel->setDTR(dtr);
+                serialChanel->setDTR(true);
+                // printf("Come On\r\n");
             }
             return SL_RESULT_OK;
         }
@@ -1002,6 +1004,7 @@ namespace sl {
             case MotorCtrlSupportNone:
                 if (_transeiver->getBindedChannel()->getChannelType() == CHANNEL_TYPE_SERIALPORT) {
                     ISerialPortChannel* serialChanel = (ISerialPortChannel*)_transeiver->getBindedChannel();
+                    // printf("SL Set Speed %d\r\n",speed);
                     if (!speed) {
                         serialChanel->setDTR(true);
                     }else{

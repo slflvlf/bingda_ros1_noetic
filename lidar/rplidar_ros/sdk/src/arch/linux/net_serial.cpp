@@ -408,6 +408,7 @@ void raw_serial::clearDTR()
 
     uint32_t dtr_bit = TIOCM_DTR;
     ioctl(serial_fd, TIOCMBIC, &dtr_bit);
+    // printf("real set DTR\r\n");
 }
 
 void raw_serial::_init()
