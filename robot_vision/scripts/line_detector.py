@@ -31,7 +31,7 @@ class line_follow:
     def __init__(self):    
         #define topic publisher and subscriber
         self.bridge = CvBridge()
-        self.image_sub = rospy.Subscriber("/image_raw", Image, self.callback)
+        
         self.mask_pub = rospy.Publisher("/mask_image", Image, queue_size=1)
         self.result_pub = rospy.Publisher("/result_image", Image, queue_size=1)
         self.pub_cmd = rospy.Publisher('cmd_vel', Twist, queue_size=5)
@@ -45,6 +45,8 @@ class line_follow:
         self.h_upper = int(rospy.get_param('~h_upper',130))
         self.s_upper = int(rospy.get_param('~s_upper',255))
         self.v_upper = int(rospy.get_param('~v_upper',255))
+        
+        self.image_sub = rospy.Subscriber("/image_raw", Image, self.callback)
         #line center point X Axis coordinate
         self.center_point = 0
 

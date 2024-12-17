@@ -45,5 +45,5 @@ if __name__ == '__main__':
         image_converter()
         rospy.spin()
     except KeyboardInterrupt:
-        print "Shutting down cv_bridge_test node."
+        print ("Shutting down cv_bridge_test node.")
         cv2.destroyAllWindows()
