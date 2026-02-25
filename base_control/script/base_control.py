@@ -18,8 +18,32 @@
 # limitations under the License.
 
 """
-底盘控制节点：通过串口与下位机通信，订阅 cmd_vel 发送速度指令，发布 odom/IMU/电池等。
-串口协议见 base_control/README.md。
+底盘控制节点：ROS 与 STM 底盘串口通信，订阅 cmd_vel 发送速度指令，发布 odom/IMU/电池等。
+
+================================================================================
+一、ROS 与 STM 串口通信概览
+================================================================================
+  - 串口参数：115200 波特率，8N1，无校验（在 launch 中 port/baudrate 可配置）。
+  - 通信角色：本节点为上位机，STM 底盘控制板为下位机；本节点主动发“查询/控制”帧，
+    下位机回复“数据/应答”帧。
+  - 帧结构（每帧必含）：[帧头 0x5A][帧长度][ID][功能码][数据 0~250 字节][预留 0x00][CRC-8]
+    详见 base_control/PROTOCOL_README.md 与 README.md。
+  - 功能码约定：奇数=上位机→下位机（本节点发送），偶数=下位机→上位机（本节点接收并解析）。
+
+二、数据格式与单位
+  - 线速度 vx/vy：m/s，传输时 ×1000 存为 int16_t，大端序。
+  - 角速度 vz：rad/s，×1000 存为 int16_t。
+  - 航向角 yaw：度，×100 存为 int16_t（部分阿克曼转向角为弧度×1000）。
+  - 电池电压/电流：V 与 A，×1000 存为 uint16_t。
+  - IMU 陀螺/加速度：×100000 存为 int32_t；四元数 ×10000 存为 int16_t。
+
+三、传输与同步细节
+  - 发送：所有“写串口”前通过 serialIDLE_flag 互斥，避免与接收解析冲突；发送前等待
+    out_waiting 清空，保证一帧完整发出后再发下一帧。
+  - 接收：1kHz 定时器 timerCommunicationCB 中 read 到的字节先入环形队列 Circleloop，
+    再按 0x5A 帧头 + 帧长度 组帧，CRC 校验通过后按功能码解析，更新 Vx/Vy/Vyaw/电池/IMU 等。
+  - 连接保持：下位机超过 1000ms 未收到协议内数据会断开并停电机，故需持续发查询或指令
+    （本节点通过定时器周期发 0x09/0x11、0x07、0x13 等维持连接）。
 """
 
 import os
@@ -46,7 +70,9 @@ else:
     sonar_num = int(os.getenv('SONAR_NUM'))
 
 
-# 环形队列：用于串口接收数据的缓存，避免单次 read 不完整导致帧解析错位
+# ================================================================================
+# 环形队列：串口接收流式数据缓存，避免单次 read() 只读到半帧导致帧边界错位、解析错误
+# ================================================================================
 class queue:
     def __init__(self, capacity=1024 * 4):
         self.capacity = capacity
@@ -121,7 +147,8 @@ class BaseControl:
         self.pose_x = 0.0
         self.pose_y = 0.0
         self.pose_yaw = 0.0
-        self.serialIDLE_flag = 0   # 串口忙标志，避免收发冲突
+        # 串口忙标志：0=空闲；1=正在等版本/里程计等应答；3=电池/IMU；4=正在发速度指令。避免发送与接收解析争用
+        self.serialIDLE_flag = 0
         self.trans_x = 0.0
         self.trans_y = 0.0
         self.rotat_z = 0.0
@@ -220,33 +247,38 @@ class BaseControl:
         time.sleep(0.01)
         self.getInfo()
 
-    # ---------- CRC-8 校验（与下位机协议一致） ----------
+    # ---------- CRC-8 校验：与下位机 STM 协议一致，算法为 CRC-8/MAXIM ----------
+    # 校验范围：整帧从帧头到预留位（不含 CRC 自身）。多项式等见协议文档 PROTOCOL_README.md
     def crc_1byte(self, data):
         crc_1byte = 0
-        for i in range(0,8):
-            if((crc_1byte^data)&0x01):
-                crc_1byte^=0x18
-                crc_1byte>>=1
-                crc_1byte|=0x80
+        for i in range(0, 8):
+            if (crc_1byte ^ data) & 0x01:
+                crc_1byte ^= 0x18
+                crc_1byte >>= 1
+                crc_1byte |= 0x80
             else:
-                crc_1byte>>=1
+                crc_1byte >>= 1
             data >>= 1
         return crc_1byte
 
     def crc_byte(self, data, length):
+        """对 data 前 length 字节计算 CRC-8，用于发送时填最后一字节、接收时校验。"""
         ret = 0
         for i in range(length):
             ret = self.crc_1byte(ret ^ data[i])
         return ret
 
-    # 订阅 /cmd_vel 的回调：将 Twist 转为串口协议并发送（功能码 0x01）
+    # ---------- 功能码 0x01：上位机→下位机 速度控制指令（Twist：vx, vy, 角速度 vz） ----------
+    # 协议：帧头 0x5A | 帧长 0x0C | ID 0x01 | 功能码 0x01 | 数据 6 字节 | 预留 0x00 | CRC
+    # 数据格式（大端）：vx×1000(int16)、vy×1000(int16)、vz×1000(int16)，单位 m/s、m/s、rad/s
+    # 例：0.5 m/s 前进 → 0x01F4 0x0000 0x0000 → 5A 0C 01 01 01 F4 00 00 00 00 00 56
     def cmdCB(self, data):
         self.trans_x = data.linear.x
         self.trans_y = data.linear.y
         self.rotat_z = data.angular.z
         self.last_cmd_vel_time = rospy.Time.now()
-        # 帧格式：0x5a 帧头，0x0c 长度，0x01 功能码，0x01 子功能，后 6 字节为 vx/vy/vz 各 2 字节（*1000 整型）
         outputdata = [0x5a, 0x0c, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        # 索引 4~5: vx 高字节、低字节；6~7: vy；8~9: vz（有符号×1000，大端）
         outputdata[4] = (int(self.trans_x * 1000.0) >> 8) & 0xff
         outputdata[5] = int(self.trans_x * 1000.0) & 0xff
         outputdata[6] = (int(self.trans_y * 1000.0) >> 8) & 0xff
@@ -266,14 +298,18 @@ class BaseControl:
             rospy.logerr("Vel Command Send Faild")
         self.serialIDLE_flag = 0
 
-    # 订阅阿克曼速度的回调：将 speed/steering_angle 转为串口协议发送（功能码 0x15）
+    # ---------- 功能码 0x15：上位机→下位机 阿克曼车速度控制 ----------
+    # 协议：帧头 0x5A | 帧长 0x0C | ID 0x01 | 功能码 0x15 | 数据 6 字节 | 预留 | CRC
+    # 数据：speed×1000(int16)、加速度占位 2 字节（未用）、steering_angle 弧度×1000(int16)
+    # 例：0.2 m/s、0.2 rad 转向 → 5A 0C 01 15 00 CB 00 00 00 CB 00 74
     def ackermannCmdCB(self, data):
         self.speed = data.drive.speed
         self.steering_angle = data.drive.steering_angle
         self.last_ackermann_cmd_time = rospy.Time.now()
-        outputdata = [0x5a,0x0c,0x01,0x15,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
-        outputdata[4] = (int(self.speed*1000.0)>>8)&0xff
-        outputdata[5] = int(self.speed*1000.0)&0xff
+        outputdata = [0x5a, 0x0c, 0x01, 0x15, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        outputdata[4] = (int(self.speed * 1000.0) >> 8) & 0xff
+        outputdata[5] = int(self.speed * 1000.0) & 0xff
+        # 6~7 为加速度占位；8~9 为转向角（弧度×1000）
         outputdata[8] = (int(self.steering_angle * 1000.0) >> 8) & 0xff
         outputdata[9] = int(self.steering_angle * 1000.0) & 0xff
         crc_8 = self.crc_byte(outputdata, len(outputdata) - 1)
@@ -289,7 +325,8 @@ class BaseControl:
             rospy.logerr("Vel Command Send Faild")
         self.serialIDLE_flag = 0
 
-    # 请求下位机硬件/固件版本（功能码 0xf1），回复在 timerCommunicationCB 里解析
+    # ---------- 功能码 0xF1：上位机→下位机 查询版本号，无数据段 ----------
+    # 帧：5A 06 01 F1 00 D7（帧长 6，CRC 已算好）。下位机回复 0xF2，数据 6 字节：硬件版 3 + 固件版 3
     def getVersion(self):
         outputdata = [0x5a, 0x06, 0x01, 0xf1, 0x00, 0xd7]
         while(self.serialIDLE_flag):
@@ -303,7 +340,8 @@ class BaseControl:
             rospy.logerr("Get Version Command Send Faild")
         self.serialIDLE_flag = 0
 
-    # 请求下位机序列号（功能码 0xf3）
+    # ---------- 功能码 0xF3：上位机→下位机 查询主板 SN，无数据段 ----------
+    # 下位机回复 0xF4，数据 12 字节为 SN（十六进制表示）
     def getSN(self):
         outputdata = [0x5a, 0x06, 0x01, 0xf3, 0x00, 0x46]
         while(self.serialIDLE_flag):
@@ -317,7 +355,8 @@ class BaseControl:
             rospy.logerr("Get SN Command Send Faild")
         self.serialIDLE_flag = 0
 
-    # 请求下位机型号/电机/减速比/轮径等信息（功能码 0x21）
+    # ---------- 功能码 0x21：上位机→下位机 获取底盘配置信息，无数据段 ----------
+    # 下位机回复 0x22：BASE_TYPE(1)、MOTOR_TYPE(1)、ratio×10(2)、diameter×10(2)
     def getInfo(self):
         outputdata = [0x5a, 0x06, 0x01, 0x21, 0x00, 0x8f]
         while(self.serialIDLE_flag):
@@ -331,13 +370,13 @@ class BaseControl:
             rospy.logerr("Get info Command Send Faild")
         self.serialIDLE_flag = 0
 
-    # 定时器回调：请求速度数据并发布 Odometry 与 TF（odom -> base_footprint）
+    # ---------- 定时器：发送 0x09/0x11 请求里程计，用 0x04/0x0a/0x12 应答中的 Vx/Vy/Yawz/Vyaw 积分发布 Odometry 与 TF ----------
+    # 0x09：旧固件，无 Vy；0x11：新固件，含 Y 轴线速度（全向底盘）。应答在 timerCommunicationCB 中解析并写入 self.Vx/Vy/Yawz/Vyaw
     def timerOdomCB(self, event):
-        # 根据固件版本选择旧命令 0x09 或新命令 0x11
-        if self.movebase_firmware_version[1] == 0: 
-            outputdata = [0x5a, 0x06, 0x01, 0x09, 0x00, 0x38]
+        if self.movebase_firmware_version[1] == 0:
+            outputdata = [0x5a, 0x06, 0x01, 0x09, 0x00, 0x38]  # 请求旧版速度/航向
         else:
-            outputdata = [0x5a, 0x06, 0x01, 0x11, 0x00, 0xa2]
+            outputdata = [0x5a, 0x06, 0x01, 0x11, 0x00, 0xa2]  # 请求新版（含 Vy）
         while self.serialIDLE_flag:
             time.sleep(0.01)
         self.serialIDLE_flag = 1
@@ -388,7 +427,7 @@ class BaseControl:
         if self.boardcast_odom_tf:
             self.tf_broadcaster.sendTransform((self.pose_x, self.pose_y, 0.0), pose_quat, self.current_time, self.baseId, self.odomId)
 
-    # 定时器回调：请求电池数据并发布 BatteryState
+    # ---------- 定时器：功能码 0x07 查询电池，下位机 0x08 应答 4 字节（电压×1000、电流×1000），解析后发布 BatteryState ----------
     def timerBatteryCB(self, event):
         outputdata = [0x5a, 0x06, 0x01, 0x07, 0x00, 0xe4]
         while self.serialIDLE_flag:
@@ -408,7 +447,7 @@ class BaseControl:
         msg.current = float(self.Icurrent/1000.0)
         self.battery_pub.publish(msg)
 
-    # 定时器回调：请求 IMU 原始数据并发布 Imu 消息（功能码 0x13）
+    # ---------- 定时器：功能码 0x13 查询 IMU 原始数据，下位机 0x14 应答 32 字节（陀螺×1e5、加速度×1e5、四元数×1e4），发布 Imu ----------
     def timerIMUCB(self, event):
         outputdata = [0x5a, 0x06, 0x01, 0x13, 0x00, 0x33]
         while self.serialIDLE_flag:
@@ -441,7 +480,13 @@ class BaseControl:
 
         self.imu_pub.publish(msg)
 
-    # 通信定时器回调（1kHz）：读串口数据入队，按帧解析并更新 Vx/Vy/Vyaw/电池/IMU/版本等
+    # ================================================================================
+    # 通信定时器回调（1kHz）：串口接收与协议解析
+    # 流程：1) 将 in_waiting 读出的字节全部入环形队列 Circleloop
+    #       2) 若队首为帧头 0x5A，则根据第二字节“帧长度”判断是否收齐一帧
+    #       3) 收齐则出队到 databuf，做 CRC 校验（最后一字节为 CRC，校验前 length-1 字节）
+    #       4) 按 databuf[3] 功能码分支解析，更新 Vx/Vy/Vyaw/电池/IMU/版本等（下位机→上位机均为偶数功能码）
+    # ================================================================================
     def timerCommunicationCB(self, event):
         length = self.serial.in_waiting
         if length:
@@ -455,8 +500,8 @@ class BaseControl:
                         pass
         if not self.Circleloop.is_empty():
             data = self.Circleloop.get_front()
-            if data == 0x5a:  # 帧头
-                length = self.Circleloop.get_front_second()
+            if data == 0x5a:  # 帧头固定 0x5A
+                length = self.Circleloop.get_front_second()  # 帧长度 = 整帧字节数
                 if length > 1:
                     if self.Circleloop.get_front_second() <= self.Circleloop.get_queue_length():
                         databuf = []
@@ -465,27 +510,27 @@ class BaseControl:
                             self.Circleloop.dequeue()
 
                         if databuf[length - 1] != self.crc_byte(databuf, length - 1):
-                            return
-                        # 按功能码 databuf[3] 解析不同数据
-                        if databuf[3] == 0x04:  # 速度应答
+                            return  # CRC 不通过丢弃本帧
+                        # ---------- 下位机→上位机：按功能码 databuf[3] 解析数据段 databuf[4..] ----------
+                        if databuf[3] == 0x04:  # 0x04：当前速度，6 字节。Vx Vy Vyaw 各 int16 大端，×1000 对应 m/s、rad/s
                             self.Vx = databuf[4] * 256 + databuf[5]
                             self.Vy = databuf[6] * 256 + databuf[7]
                             self.Vyaw = databuf[8] * 256 + databuf[9]
-                        elif databuf[3] == 0x06:
+                        elif databuf[3] == 0x06:  # 0x06：IMU 欧拉角应答，6 字节。此处仅取 Yaw 高低位（字节 8~9）
                             self.Yawz = databuf[8] * 256 + databuf[9]
-                        elif databuf[3] == 0x08:  # 电池电压电流
+                        elif databuf[3] == 0x08:  # 0x08：电池，4 字节。电压×1000、电流×1000，uint16 大端
                             self.Vvoltage = databuf[4] * 256 + databuf[5]
                             self.Icurrent = databuf[6] * 256 + databuf[7]
-                        elif databuf[3] == 0x0a:  # 速度+航向
+                        elif databuf[3] == 0x0a:  # 0x0a：速度+航向，6 字节。vx×1000, yaw×100(度), vz×1000
                             self.Vx = databuf[4] * 256 + databuf[5]
                             self.Yawz = databuf[6] * 256 + databuf[7]
                             self.Vyaw = databuf[8] * 256 + databuf[9]
-                        elif databuf[3] == 0x12:  # Vx Vy Yawz Vyaw（新协议）
+                        elif databuf[3] == 0x12:  # 0x12：速度+航向（新），8 字节。vx vy yaw×100 vz，各 int16 大端
                             self.Vx = databuf[4] * 256 + databuf[5]
                             self.Vy = databuf[6] * 256 + databuf[7]
                             self.Yawz = databuf[8] * 256 + databuf[9]
                             self.Vyaw = databuf[10] * 256 + databuf[11]
-                        elif databuf[3] == 0x14:  # IMU 陀螺/加速度/四元数
+                        elif databuf[3] == 0x14:  # 0x14：IMU 原始，32 字节。GyroX/Y/Z、AccelX/Y/Z 各 int32×1e5；Quat W/X/Y/Z 各 int16×1e4，大端
                             self.Gyro[0] = int(((databuf[4]&0xff)<<24)|((databuf[5]&0xff)<<16)|((databuf[6]&0xff)<<8)|(databuf[7]&0xff))
                             self.Gyro[1] = int(((databuf[8]&0xff)<<24)|((databuf[9]&0xff)<<16)|((databuf[10]&0xff)<<8)|(databuf[11]&0xff))
                             self.Gyro[2] = int(((databuf[12]&0xff)<<24)|((databuf[13]&0xff)<<16)|((databuf[14]&0xff)<<8)|(databuf[15]&0xff))
@@ -498,12 +543,12 @@ class BaseControl:
                             self.Quat[1] = int((databuf[30]&0xff)<<8|databuf[31])
                             self.Quat[2] = int((databuf[32] & 0xff) << 8 | databuf[33])
                             self.Quat[3] = int((databuf[34] & 0xff) << 8 | databuf[35])
-                        elif databuf[3] == 0x1a:  # 超声波
+                        elif databuf[3] == 0x1a:  # 0x1a：超声波，4 字节，单位 cm
                             self.Sonar[0] = databuf[4]
                             self.Sonar[1] = databuf[5]
                             self.Sonar[2] = databuf[6]
                             self.Sonar[3] = databuf[7]
-                        elif databuf[3] == 0xf2:  # 版本号应答
+                        elif databuf[3] == 0xf2:  # 0xf2：版本号，6 字节。Byte4~6 硬件 xx.yy.zz，Byte7~9 固件 aa.bb.cc
                             self.movebase_hardware_version[0] = databuf[4]
                             self.movebase_hardware_version[1] = databuf[5]
                             self.movebase_hardware_version[2] = databuf[6]
@@ -514,13 +559,13 @@ class BaseControl:
                                 %(self.movebase_hardware_version[0],self.movebase_hardware_version[1],self.movebase_hardware_version[2],\
                                 self.movebase_firmware_version[0],self.movebase_firmware_version[1],self.movebase_firmware_version[2])
                             rospy.loginfo(version_string)
-                        elif databuf[3] == 0xf4:  # 序列号应答
+                        elif databuf[3] == 0xf4:  # 0xf4：SN，12 字节，Byte4~15 为 SN 十六进制
                             sn_string = "SN:"
                             for i in range(4, 16):
                                 sn_string = "%s%02x" % (sn_string, databuf[i])
                             rospy.loginfo(sn_string)
 
-                        elif databuf[3] == 0x22:  # 型号/电机/减速比/轮径应答
+                        elif databuf[3] == 0x22:  # 0x22：配置信息，6 字节。类型(1)、电机(1)、减速比×10(2)、轮径×10(2)，大端
                             fRatio = float(databuf[6]<<8|databuf[7])/10
                             fDiameter = float(databuf[8]<<8|databuf[9])/10
                             info_string = "Type:%s Motor:%s Ratio:%.01f WheelDiameter:%.01f"\
