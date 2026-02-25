@@ -1,21 +1,36 @@
 <launch>
-    <!-- config param -->
+    <!-- ========== base_startup.launch 说明 ==========
+         本文件是“底盘 + 雷达 + 相机”的一键启动入口，通过 <include> 把三个 launch 组合在一起。
+         适合需要同时用到底盘、激光和视觉的场合（如建图+拍照、巡检等）。
+    -->
+
+    <!-- ========== 本 launch 的可配置参数 <arg> ==========
+         调用时可覆盖，例如：
+         roslaunch base_control base_startup.launch pub_imu:=True device:=video1
+    -->
     <arg name="pub_imu"       default="True" />
-    <arg name="sub_ackermann"       default="False" />
-    <arg name="lidar_frame" default="base_laser_link"/>  
-    <arg name="device" default="video0"/>  
-    
+    <arg name="sub_ackermann" default="False" />
+    <arg name="lidar_frame"   default="base_laser_link"/>
+    <arg name="device"        default="video0"/>
+
+    <!-- ========== <include> 引入其他 launch 文件 ==========
+         file="$(find 包名)/路径/xxx.launch" 会先找到该包的路径，再加载对应 launch。
+         <arg name="..." value="..."/> 把本文件的 arg 传进被 include 的 launch（对方需有同名 arg 声明）。
+    -->
+    <!-- 1. 启动底盘：串口通信、cmd_vel、odom、IMU、电池等 -->
     <include file="$(find base_control)/launch/base_control.launch">
-      <arg name="pub_imu"            value="$(arg pub_imu)"/>  
-      <arg name="sub_ackermann"            value="$(arg sub_ackermann)"/>  
+        <arg name="pub_imu"            value="$(arg pub_imu)"/>
+        <arg name="sub_ackermann"      value="$(arg sub_ackermann)"/>
     </include>
 
+    <!-- 2. 启动雷达：根据环境变量 LIDAR_TYPE 选择对应雷达驱动，并发布 base_footprint->base_laser 的 TF -->
     <include file="$(find robot_navigation)/launch/lidar.launch">
-      <arg name="lidar_frame"            value="$(arg lidar_frame)"/>  
+        <arg name="lidar_frame"        value="$(arg lidar_frame)"/>
     </include>
 
-    <include file="$(find robot_vision)/launch/robot_camera.launch"> 
-      <arg name="device"            value="$(arg device)"/>  
+    <!-- 3. 启动相机：robot_vision 包里的相机节点，device 一般为 video0、video1 等 -->
+    <include file="$(find robot_vision)/launch/robot_camera.launch">
+        <arg name="device"             value="$(arg device)"/>
     </include>
 
 </launch>

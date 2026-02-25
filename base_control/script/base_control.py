@@ -1,5 +1,6 @@
 #!/usr/bin/python
 # coding=gbk
+# -*- coding: utf-8 -*-
 
 # Copyright 2019 Wechange Tech.
 # Developer: FuZhi, Liu (liu.fuzhi@liu.fuzhi@bingda-robot.com)
@@ -16,6 +17,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+底盘控制节点：通过串口与下位机通信，订阅 cmd_vel 发送速度指令，发布 odom/IMU/电池等。
+串口协议见 base_control/README.md。
+"""
+
 import os
 import rospy
 import tf
@@ -31,13 +37,16 @@ from sensor_msgs.msg import BatteryState
 from sensor_msgs.msg import Imu
 from sensor_msgs.msg import Range
 
+# 从环境变量读取底盘型号（如 NanoRobot、NanoCar），用于选择订阅类型等
 base_type = os.getenv('BASE_TYPE')
+# 超声波数量，未设置则默认为 0
 if os.getenv('SONAR_NUM') is None:
     sonar_num = 0
 else:
-    sonar_num = int(os.getenv('SONAR_NUM')) 
+    sonar_num = int(os.getenv('SONAR_NUM'))
 
-# class queue is design for uart receive data cache
+
+# 环形队列：用于串口接收数据的缓存，避免单次 read 不完整导致帧解析错位
 class queue:
     def __init__(self, capacity=1024 * 4):
         self.capacity = capacity
@@ -76,43 +85,43 @@ class queue:
 
     def show_queue(self):
         for i in range(self.capacity):
-            # print self.array[i],
             pass
         print(' ')
 
-#class BaseControl is design for hardware base relative control
+
+# 底盘控制主类：串口通信、速度指令下发、里程计/IMU/电池数据上报
 class BaseControl:
     def __init__(self):
-        self.Circleloop = queue(capacity = 1024*4)
-        #Get params
-        self.baseId = rospy.get_param('~base_id','base_footprint')
-        self.odomId = rospy.get_param('~odom_id','odom')
-        self.device_port = rospy.get_param('~port','/dev/ttyUSB0')
-        self.baudrate = int(rospy.get_param('~baudrate','115200'))
-        self.odom_freq = int(rospy.get_param('~odom_freq','50'))
-        self.odom_topic = rospy.get_param('~odom_topic','/odom')
-        self.battery_topic = rospy.get_param('~battery_topic','battery')
-        self.battery_freq = float(rospy.get_param('~battery_freq','1'))
-        self.cmd_vel_topic= rospy.get_param('~cmd_vel_topic','/cmd_vel')
-        self.ackermann_cmd_topic = rospy.get_param('~ackermann_cmd_topic','/ackermann_cmd_topic')
-        self.pub_imu = bool(rospy.get_param('~pub_imu',False))
-        if(self.pub_imu == True):
-            self.imuId = rospy.get_param('~imu_id','imu')
-            self.imu_topic = rospy.get_param('~imu_topic','imu')
-            self.imu_freq = float(rospy.get_param('~imu_freq','50'))
+        self.Circleloop = queue(capacity=1024 * 4)  # 串口接收环形缓冲
+        # ---------- 从 launch 的 rosparam 读取的私有参数（~ 表示节点私有） ----------
+        self.baseId = rospy.get_param('~base_id', 'base_footprint')
+        self.odomId = rospy.get_param('~odom_id', 'odom')
+        self.device_port = rospy.get_param('~port', '/dev/ttyUSB0')
+        self.baudrate = int(rospy.get_param('~baudrate', '115200'))
+        self.odom_freq = int(rospy.get_param('~odom_freq', '50'))
+        self.odom_topic = rospy.get_param('~odom_topic', '/odom')
+        self.battery_topic = rospy.get_param('~battery_topic', 'battery')
+        self.battery_freq = float(rospy.get_param('~battery_freq', '1'))
+        self.cmd_vel_topic = rospy.get_param('~cmd_vel_topic', '/cmd_vel')
+        self.ackermann_cmd_topic = rospy.get_param('~ackermann_cmd_topic', '/ackermann_cmd_topic')
+        self.pub_imu = bool(rospy.get_param('~pub_imu', False))
+        if self.pub_imu:
+            self.imuId = rospy.get_param('~imu_id', 'imu')
+            self.imu_topic = rospy.get_param('~imu_topic', 'imu')
+            self.imu_freq = float(rospy.get_param('~imu_freq', '50'))
             if self.imu_freq > 100:
                 self.imu_freq = 100
-        self.pub_sonar = bool(rospy.get_param('~pub_sonar',False))
-        self.sub_ackermann = bool(rospy.get_param('~sub_ackermann',False))
-        self.boardcast_odom_tf = bool(rospy.get_param('~boardcast_odom_tf',True))
+        self.pub_sonar = bool(rospy.get_param('~pub_sonar', False))
+        self.sub_ackermann = bool(rospy.get_param('~sub_ackermann', False))
+        self.boardcast_odom_tf = bool(rospy.get_param('~boardcast_odom_tf', True))
 
-        #define variable
+        # ---------- 内部状态与协议解析用的变量 ----------
         self.current_time = rospy.Time.now()
         self.previous_time = self.current_time
         self.pose_x = 0.0
         self.pose_y = 0.0
         self.pose_yaw = 0.0
-        self.serialIDLE_flag = 0
+        self.serialIDLE_flag = 0   # 串口忙标志，避免收发冲突
         self.trans_x = 0.0
         self.trans_y = 0.0
         self.rotat_z = 0.0
@@ -127,20 +136,21 @@ class BaseControl:
         self.Vx = 0
         self.Vy = 0
         self.Vyaw = 0
-        self.Yawz = 0
+        self.Yawz = 0          # 航向角（度），来自下位机
         self.Vvoltage = 0
         self.Icurrent = 0
-        self.Gyro = [0,0,0]
-        self.Accel = [0,0,0]
-        self.Quat = [0,0,0,0]
-        self.Sonar = [0,0,0,0]
-        self.movebase_firmware_version = [0,0,0]
-        self.movebase_hardware_version = [0,0,0]
-        self.movebase_type = ["NanoCar","NanoRobot","4WD_OMNI","4WD","RC_ACKERMAN"]
-        self.motor_type = ["25GA370","37GB520","TT48","RS365","RS540"]
+        self.Gyro = [0, 0, 0]
+        self.Accel = [0, 0, 0]
+        self.Quat = [0, 0, 0, 0]
+        self.Sonar = [0, 0, 0, 0]
+        self.movebase_firmware_version = [0, 0, 0]
+        self.movebase_hardware_version = [0, 0, 0]
+        self.movebase_type = ["NanoCar", "NanoRobot", "4WD_OMNI", "4WD", "RC_ACKERMAN"]
+        self.motor_type = ["25GA370", "37GB520", "TT48", "RS365", "RS540"]
         self.last_cmd_vel_time = rospy.Time.now()
         self.last_ackermann_cmd_time = rospy.Time.now()
-        self.odom_pose_covariance   = [1e-3,    0,    0,   0,   0,    0, 
+        # 里程计消息的协方差矩阵（6x6），静止/运动时不同
+        self.odom_pose_covariance = [1e-3,    0,    0,   0,   0,    0, 
                                                 0, 1e-3,    0,   0,   0,    0,
                                                 0,    0,  1e6,   0,   0,    0,
                                                 0,    0,    0, 1e6,   0,    0,
@@ -166,44 +176,42 @@ class BaseControl:
                                                     0,    0,  1e6,   0,   0,    0,
                                                     0,    0,    0, 1e6,   0,    0,
                                                     0,    0,    0,   0, 1e6,    0,
-                                                    0,    0,    0,   0,   0, 1e-9]             
-        # Serial Communication
+                                                    0,    0,    0,   0,   0, 1e-9]
+        # ---------- 打开串口 ----------
         try:
-            self.serial = serial.Serial(self.device_port,self.baudrate,timeout=10)
+            self.serial = serial.Serial(self.device_port, self.baudrate, timeout=10)
             rospy.loginfo("Opening Serial")
             try:
                 if self.serial.in_waiting:
                     self.serial.readall()
-            except:
+            except Exception:
                 rospy.loginfo("Opening Serial Try Faild")
                 pass
-        except:
-            rospy.logerr("Can not open Serial"+self.device_port)
+        except Exception:
+            rospy.logerr("Can not open Serial" + self.device_port)
             self.serial.close
             sys.exit(0)
         rospy.loginfo("Serial Open Succeed")
-        #if move base type is ackermann car like robot and use ackermann msg ,sud ackermann topic,else sub cmd_vel topic
-        if(('NanoCar' in base_type) & (self.sub_ackermann == True)):
+        # 阿克曼车且启用 ackermann 时订阅 ackermann 话题，否则订阅 cmd_vel
+        if ('NanoCar' in base_type) and (self.sub_ackermann is True):
             from ackermann_msgs.msg import AckermannDriveStamped
-            self.sub = rospy.Subscriber(self.ackermann_cmd_topic,AckermannDriveStamped,self.ackermannCmdCB,queue_size=20)
+            self.sub = rospy.Subscriber(self.ackermann_cmd_topic, AckermannDriveStamped, self.ackermannCmdCB, queue_size=20)
         else:
-            self.sub = rospy.Subscriber(self.cmd_vel_topic,Twist,self.cmdCB,queue_size=20)
-        self.pub = rospy.Publisher(self.odom_topic,Odometry,queue_size=10) #odom publisher
-        self.battery_pub = rospy.Publisher(self.battery_topic,BatteryState,queue_size=3)
+            self.sub = rospy.Subscriber(self.cmd_vel_topic, Twist, self.cmdCB, queue_size=20)
+        self.pub = rospy.Publisher(self.odom_topic, Odometry, queue_size=10)
+        self.battery_pub = rospy.Publisher(self.battery_topic, BatteryState, queue_size=3)
         if self.boardcast_odom_tf:
             self.tf_broadcaster = tf.TransformBroadcaster()
-        self.timer_odom = rospy.Timer(rospy.Duration(1.0/self.odom_freq),self.timerOdomCB)
-        self.timer_battery = rospy.Timer(rospy.Duration(1.0/self.battery_freq),self.timerBatteryCB)  
-        self.timer_communication = rospy.Timer(rospy.Duration(1.0/1000),self.timerCommunicationCB)
+        self.timer_odom = rospy.Timer(rospy.Duration(1.0 / self.odom_freq), self.timerOdomCB)
+        self.timer_battery = rospy.Timer(rospy.Duration(1.0 / self.battery_freq), self.timerBatteryCB)
+        self.timer_communication = rospy.Timer(rospy.Duration(1.0 / 1000), self.timerCommunicationCB)
 
-        #inorder to compatibility old version firmware,imu topic is NOT pud in default
-        if(self.pub_imu):            
-            self.imu_pub = rospy.Publisher(self.imu_topic,Imu,queue_size=10)
-            self.timer_imu = rospy.Timer(rospy.Duration(1.0/self.imu_freq),self.timerIMUCB) 
+        if self.pub_imu:
+            self.imu_pub = rospy.Publisher(self.imu_topic, Imu, queue_size=10)
+            self.timer_imu = rospy.Timer(rospy.Duration(1.0 / self.imu_freq), self.timerIMUCB)
         self.getVersion()
 
-        #move base imu initialization need about 2s,during initialization,move base system is blocked
-        #so need this gap
+        # 等待下位机返回版本后再继续；老固件 IMU 初始化约 2s 会阻塞
         while self.movebase_hardware_version[0] == 0:
             pass
         if self.movebase_hardware_version[0] < 2:
@@ -212,8 +220,8 @@ class BaseControl:
         time.sleep(0.01)
         self.getInfo()
 
-    #CRC-8 Calculate
-    def crc_1byte(self,data):
+    # ---------- CRC-8 校验（与下位机协议一致） ----------
+    def crc_1byte(self, data):
         crc_1byte = 0
         for i in range(0,8):
             if((crc_1byte^data)&0x01):
@@ -222,28 +230,30 @@ class BaseControl:
                 crc_1byte|=0x80
             else:
                 crc_1byte>>=1
-            data>>=1
+            data >>= 1
         return crc_1byte
-    def crc_byte(self,data,length):
+
+    def crc_byte(self, data, length):
         ret = 0
         for i in range(length):
-            ret = self.crc_1byte(ret^data[i])
-        return ret               
-    
-    #Subscribe vel_cmd call this to send vel cmd to move base
-    def cmdCB(self,data):
+            ret = self.crc_1byte(ret ^ data[i])
+        return ret
+
+    # 订阅 /cmd_vel 的回调：将 Twist 转为串口协议并发送（功能码 0x01）
+    def cmdCB(self, data):
         self.trans_x = data.linear.x
         self.trans_y = data.linear.y
         self.rotat_z = data.angular.z
         self.last_cmd_vel_time = rospy.Time.now()
-        outputdata = [0x5a,0x0c,0x01,0x01,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
-        outputdata[4] = (int(self.trans_x*1000.0)>>8)&0xff
-        outputdata[5] = int(self.trans_x*1000.0)&0xff
-        outputdata[6] = (int(self.trans_y*1000.0)>>8)&0xff
-        outputdata[7] = int(self.trans_y*1000.0)&0xff
-        outputdata[8] = (int(self.rotat_z*1000.0)>>8)&0xff
-        outputdata[9] = int(self.rotat_z*1000.0)&0xff
-        crc_8 = self.crc_byte(outputdata,len(outputdata)-1)
+        # 帧格式：0x5a 帧头，0x0c 长度，0x01 功能码，0x01 子功能，后 6 字节为 vx/vy/vz 各 2 字节（*1000 整型）
+        outputdata = [0x5a, 0x0c, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+        outputdata[4] = (int(self.trans_x * 1000.0) >> 8) & 0xff
+        outputdata[5] = int(self.trans_x * 1000.0) & 0xff
+        outputdata[6] = (int(self.trans_y * 1000.0) >> 8) & 0xff
+        outputdata[7] = int(self.trans_y * 1000.0) & 0xff
+        outputdata[8] = (int(self.rotat_z * 1000.0) >> 8) & 0xff
+        outputdata[9] = int(self.rotat_z * 1000.0) & 0xff
+        crc_8 = self.crc_byte(outputdata, len(outputdata) - 1)
         outputdata[11] = crc_8
         while self.serialIDLE_flag:
             time.sleep(0.01)
@@ -252,21 +262,21 @@ class BaseControl:
             while self.serial.out_waiting:
                 pass
             self.serial.write(outputdata)
-        except:
+        except Exception:
             rospy.logerr("Vel Command Send Faild")
         self.serialIDLE_flag = 0
-    
-    #Subscribe ackermann Cmd call this to send vel cmd to move base
-    def ackermannCmdCB(self,data):
+
+    # 订阅阿克曼速度的回调：将 speed/steering_angle 转为串口协议发送（功能码 0x15）
+    def ackermannCmdCB(self, data):
         self.speed = data.drive.speed
         self.steering_angle = data.drive.steering_angle
         self.last_ackermann_cmd_time = rospy.Time.now()
         outputdata = [0x5a,0x0c,0x01,0x15,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
         outputdata[4] = (int(self.speed*1000.0)>>8)&0xff
         outputdata[5] = int(self.speed*1000.0)&0xff
-        outputdata[8] = (int(self.steering_angle*1000.0)>>8)&0xff
-        outputdata[9] = int(self.steering_angle*1000.0)&0xff
-        crc_8 = self.crc_byte(outputdata,len(outputdata)-1)
+        outputdata[8] = (int(self.steering_angle * 1000.0) >> 8) & 0xff
+        outputdata[9] = int(self.steering_angle * 1000.0) & 0xff
+        crc_8 = self.crc_byte(outputdata, len(outputdata) - 1)
         outputdata[11] = crc_8
         while self.serialIDLE_flag:
             time.sleep(0.01)
@@ -275,14 +285,13 @@ class BaseControl:
             while self.serial.out_waiting:
                 pass
             self.serial.write(outputdata)
-        except:
+        except Exception:
             rospy.logerr("Vel Command Send Faild")
         self.serialIDLE_flag = 0
 
-    #get move base hardware & firmware version    
+    # 请求下位机硬件/固件版本（功能码 0xf1），回复在 timerCommunicationCB 里解析
     def getVersion(self):
-        #Get version info
-        outputdata = [0x5a, 0x06, 0x01, 0xf1, 0x00, 0xd7] #0x33 is CRC-8 value
+        outputdata = [0x5a, 0x06, 0x01, 0xf1, 0x00, 0xd7]
         while(self.serialIDLE_flag):
             time.sleep(0.01)
         self.serialIDLE_flag = 1
@@ -290,13 +299,12 @@ class BaseControl:
             while self.serial.out_waiting:
                 pass
             self.serial.write(outputdata)
-        except:
+        except Exception:
             rospy.logerr("Get Version Command Send Faild")
-        self.serialIDLE_flag = 0 
-    
-    #get move base SN
+        self.serialIDLE_flag = 0
+
+    # 请求下位机序列号（功能码 0xf3）
     def getSN(self):
-        #Get version info
         outputdata = [0x5a, 0x06, 0x01, 0xf3, 0x00, 0x46]
         while(self.serialIDLE_flag):
             time.sleep(0.01)
@@ -305,13 +313,12 @@ class BaseControl:
             while self.serial.out_waiting:
                 pass
             self.serial.write(outputdata)
-        except:
+        except Exception:
             rospy.logerr("Get SN Command Send Faild")
-        self.serialIDLE_flag = 0  
-    
-    #get move base info
+        self.serialIDLE_flag = 0
+
+    # 请求下位机型号/电机/减速比/轮径等信息（功能码 0x21）
     def getInfo(self):
-        #Get version info
         outputdata = [0x5a, 0x06, 0x01, 0x21, 0x00, 0x8f]
         while(self.serialIDLE_flag):
             time.sleep(0.01)
@@ -320,44 +327,43 @@ class BaseControl:
             while self.serial.out_waiting:
                 pass
             self.serial.write(outputdata)
-        except:
+        except Exception:
             rospy.logerr("Get info Command Send Faild")
-        self.serialIDLE_flag = 0               
-    
-    #Odom Timer call this to get velocity and imu info and convert to odom topic
-    def timerOdomCB(self,event):
-        #Get move base velocity data
+        self.serialIDLE_flag = 0
+
+    # 定时器回调：请求速度数据并发布 Odometry 与 TF（odom -> base_footprint）
+    def timerOdomCB(self, event):
+        # 根据固件版本选择旧命令 0x09 或新命令 0x11
         if self.movebase_firmware_version[1] == 0: 
-            #old version firmware have no version info and not support new command below
             outputdata = [0x5a, 0x06, 0x01, 0x09, 0x00, 0x38]
         else:
-            #in firmware version new than v1.1.0,support this command       
             outputdata = [0x5a, 0x06, 0x01, 0x11, 0x00, 0xa2]
-        while(self.serialIDLE_flag):
+        while self.serialIDLE_flag:
             time.sleep(0.01)
         self.serialIDLE_flag = 1
         try:
             while self.serial.out_waiting:
                 pass
             self.serial.write(outputdata)
-        except:
+        except Exception:
             rospy.logerr("Odom Command Send Faild")
-        self.serialIDLE_flag = 0   
-        #calculate odom data
-        Vx = float(ctypes.c_int16(self.Vx).value/1000.0)
-        Vy = float(ctypes.c_int16(self.Vy).value/1000.0)
-        Vyaw = float(ctypes.c_int16(self.Vyaw).value/1000.0)
+        self.serialIDLE_flag = 0
+        # 用通信回调里解析出的 Vx/Vy/Vyaw/Yawz 积分得到位姿并发布
+        Vx = float(ctypes.c_int16(self.Vx).value / 1000.0)
+        Vy = float(ctypes.c_int16(self.Vy).value / 1000.0)
+        Vyaw = float(ctypes.c_int16(self.Vyaw).value / 1000.0)
 
-        self.pose_yaw = float(ctypes.c_int16(self.Yawz).value/100.0)
-        self.pose_yaw = self.pose_yaw*math.pi/180.0
-  
+        self.pose_yaw = float(ctypes.c_int16(self.Yawz).value / 100.0)
+        self.pose_yaw = self.pose_yaw * math.pi / 180.0
+
         self.current_time = rospy.Time.now()
         dt = (self.current_time - self.previous_time).to_sec()
         self.previous_time = self.current_time
-        self.pose_x = self.pose_x + Vx * (math.cos(self.pose_yaw))*dt - Vy * (math.sin(self.pose_yaw))*dt
-        self.pose_y = self.pose_y + Vx * (math.sin(self.pose_yaw))*dt + Vy * (math.cos(self.pose_yaw))*dt
+        # 平面运动学积分：在 odom 系下根据线速度/角速度更新 pose_x, pose_y
+        self.pose_x = self.pose_x + Vx * math.cos(self.pose_yaw) * dt - Vy * math.sin(self.pose_yaw) * dt
+        self.pose_y = self.pose_y + Vx * math.sin(self.pose_yaw) * dt + Vy * math.cos(self.pose_yaw) * dt
 
-        pose_quat = tf.transformations.quaternion_from_euler(0,0,self.pose_yaw)        
+        pose_quat = tf.transformations.quaternion_from_euler(0, 0, self.pose_yaw)
         msg = Odometry()
         msg.header.stamp = self.current_time
         msg.header.frame_id = self.odomId
@@ -374,25 +380,25 @@ class BaseControl:
         msg.twist.twist.angular.z = Vyaw
         if abs(Vx) < 0.001 and abs(Vy) < 0.001:
             msg.pose.covariance = self.odom_pose_covariance2
-            msg.pose.covariance = self.odom_twist_covariance2
+            msg.twist.covariance = self.odom_twist_covariance2
         else:
             msg.pose.covariance = self.odom_pose_covariance2
-            msg.pose.covariance = self.odom_twist_covariance2            
+            msg.twist.covariance = self.odom_twist_covariance2
         self.pub.publish(msg)
         if self.boardcast_odom_tf:
-            self.tf_broadcaster.sendTransform((self.pose_x,self.pose_y,0.0),pose_quat,self.current_time,self.baseId,self.odomId)
-    
-    #Battery Timer callback function to get battery info
-    def timerBatteryCB(self,event):
+            self.tf_broadcaster.sendTransform((self.pose_x, self.pose_y, 0.0), pose_quat, self.current_time, self.baseId, self.odomId)
+
+    # 定时器回调：请求电池数据并发布 BatteryState
+    def timerBatteryCB(self, event):
         outputdata = [0x5a, 0x06, 0x01, 0x07, 0x00, 0xe4]
-        while(self.serialIDLE_flag):
+        while self.serialIDLE_flag:
             time.sleep(0.01)
         self.serialIDLE_flag = 3
         try:
             while self.serial.out_waiting:
                 pass
             self.serial.write(outputdata)
-        except:
+        except Exception:
             rospy.logerr("Battery Command Send Faild")
         self.serialIDLE_flag = 0
         msg = BatteryState()
@@ -401,18 +407,18 @@ class BaseControl:
         msg.voltage = float(self.Vvoltage/1000.0)
         msg.current = float(self.Icurrent/1000.0)
         self.battery_pub.publish(msg)
-        
-    #IMU Timer callback function to get raw imu info
-    def timerIMUCB(self,event):
-        outputdata = [0x5a, 0x06, 0x01, 0x13, 0x00, 0x33] #0x33 is CRC-8 value
-        while(self.serialIDLE_flag):
+
+    # 定时器回调：请求 IMU 原始数据并发布 Imu 消息（功能码 0x13）
+    def timerIMUCB(self, event):
+        outputdata = [0x5a, 0x06, 0x01, 0x13, 0x00, 0x33]
+        while self.serialIDLE_flag:
             time.sleep(0.01)
         self.serialIDLE_flag = 3
         try:
             while self.serial.out_waiting:
                 pass
             self.serial.write(outputdata)
-        except:
+        except Exception:
             rospy.logerr("Imu Command Send Faild")
 
         self.serialIDLE_flag = 0
@@ -420,83 +426,66 @@ class BaseControl:
         msg.header.stamp = rospy.Time.now()
         msg.header.frame_id = self.imuId
 
-        msg.angular_velocity.x = float(ctypes.c_int32(self.Gyro[0]).value/100000.0)
-        msg.angular_velocity.y = float(ctypes.c_int32(self.Gyro[1]).value/100000.0)
-        msg.angular_velocity.z = float(ctypes.c_int32(self.Gyro[2]).value/100000.0)
+        msg.angular_velocity.x = float(ctypes.c_int32(self.Gyro[0]).value / 100000.0)
+        msg.angular_velocity.y = float(ctypes.c_int32(self.Gyro[1]).value / 100000.0)
+        msg.angular_velocity.z = float(ctypes.c_int32(self.Gyro[2]).value / 100000.0)
 
-        msg.linear_acceleration.x = float(ctypes.c_int32(self.Accel[0]).value/100000.0)
-        msg.linear_acceleration.y = float(ctypes.c_int32(self.Accel[1]).value/100000.0)
-        msg.linear_acceleration.z = float(ctypes.c_int32(self.Accel[2]).value/100000.0)
+        msg.linear_acceleration.x = float(ctypes.c_int32(self.Accel[0]).value / 100000.0)
+        msg.linear_acceleration.y = float(ctypes.c_int32(self.Accel[1]).value / 100000.0)
+        msg.linear_acceleration.z = float(ctypes.c_int32(self.Accel[2]).value / 100000.0)
 
-        msg.orientation.w = float(ctypes.c_int16(self.Quat[0]).value/10000.0)
-        msg.orientation.x = float(ctypes.c_int16(self.Quat[1]).value/10000.0)
-        msg.orientation.y = float(ctypes.c_int16(self.Quat[2]).value/10000.0)
-        msg.orientation.z = float(ctypes.c_int16(self.Quat[3]).value/10000.0)
+        msg.orientation.w = float(ctypes.c_int16(self.Quat[0]).value / 10000.0)
+        msg.orientation.x = float(ctypes.c_int16(self.Quat[1]).value / 10000.0)
+        msg.orientation.y = float(ctypes.c_int16(self.Quat[2]).value / 10000.0)
+        msg.orientation.z = float(ctypes.c_int16(self.Quat[3]).value / 10000.0)
 
-        self.imu_pub.publish(msg)  
+        self.imu_pub.publish(msg)
 
-    #Communication Timer callback to handle receive data
-    def timerCommunicationCB(self,event):
+    # 通信定时器回调（1kHz）：读串口数据入队，按帧解析并更新 Vx/Vy/Vyaw/电池/IMU/版本等
+    def timerCommunicationCB(self, event):
         length = self.serial.in_waiting
         if length:
             reading = self.serial.read_all()
-            if len(reading)!=0:
-                for i in range(0,len(reading)):
+            if len(reading) != 0:
+                for i in range(0, len(reading)):
                     data = reading[i]
                     try:
                         self.Circleloop.enqueue(data)
-                    except:
+                    except Exception:
                         pass
-        else:
-            pass
-        if self.Circleloop.is_empty()==False:
+        if not self.Circleloop.is_empty():
             data = self.Circleloop.get_front()
-            if data == 0x5a:
+            if data == 0x5a:  # 帧头
                 length = self.Circleloop.get_front_second()
-                if length > 1 :
+                if length > 1:
                     if self.Circleloop.get_front_second() <= self.Circleloop.get_queue_length():
                         databuf = []
                         for i in range(length):
                             databuf.append(self.Circleloop.get_front())
                             self.Circleloop.dequeue()
-                        
-                        if (databuf[length-1]) == self.crc_byte(databuf,length-1):
-                            pass
-                        else:
+
+                        if databuf[length - 1] != self.crc_byte(databuf, length - 1):
                             return
-                        #parse receive data
-                        if(databuf[3] == 0x04):
-                            self.Vx =    databuf[4]*256
-                            self.Vx +=   databuf[5]
-                            self.Vy =    databuf[6]*256
-                            self.Vy +=   databuf[7]
-                            self.Vyaw =  databuf[8]*256
-                            self.Vyaw += databuf[9]
-                        elif(databuf[3] == 0x06):
-                            self.Yawz =  databuf[8]*256
-                            self.Yawz += databuf[9]
-                        elif (databuf[3] == 0x08):
-                            self.Vvoltage = databuf[4]*256
-                            self.Vvoltage += databuf[5]
-                            self.Icurrent = databuf[6]*256
-                            self.Icurrent += databuf[7]
-                        elif (databuf[3] == 0x0a):
-                            self.Vx =    databuf[4]*256
-                            self.Vx +=   databuf[5]
-                            self.Yawz =  databuf[6]*256
-                            self.Yawz += databuf[7]
-                            self.Vyaw =  databuf[8]*256
-                            self.Vyaw += databuf[9]
-                        elif (databuf[3] == 0x12):
-                            self.Vx =    databuf[4]*256
-                            self.Vx +=   databuf[5]
-                            self.Vy =  databuf[6]*256
-                            self.Vy += databuf[7]
-                            self.Yawz =  databuf[8]*256
-                            self.Yawz += databuf[9]    
-                            self.Vyaw =  databuf[10]*256
-                            self.Vyaw += databuf[11]                      
-                        elif (databuf[3] == 0x14):
+                        # 按功能码 databuf[3] 解析不同数据
+                        if databuf[3] == 0x04:  # 速度应答
+                            self.Vx = databuf[4] * 256 + databuf[5]
+                            self.Vy = databuf[6] * 256 + databuf[7]
+                            self.Vyaw = databuf[8] * 256 + databuf[9]
+                        elif databuf[3] == 0x06:
+                            self.Yawz = databuf[8] * 256 + databuf[9]
+                        elif databuf[3] == 0x08:  # 电池电压电流
+                            self.Vvoltage = databuf[4] * 256 + databuf[5]
+                            self.Icurrent = databuf[6] * 256 + databuf[7]
+                        elif databuf[3] == 0x0a:  # 速度+航向
+                            self.Vx = databuf[4] * 256 + databuf[5]
+                            self.Yawz = databuf[6] * 256 + databuf[7]
+                            self.Vyaw = databuf[8] * 256 + databuf[9]
+                        elif databuf[3] == 0x12:  # Vx Vy Yawz Vyaw（新协议）
+                            self.Vx = databuf[4] * 256 + databuf[5]
+                            self.Vy = databuf[6] * 256 + databuf[7]
+                            self.Yawz = databuf[8] * 256 + databuf[9]
+                            self.Vyaw = databuf[10] * 256 + databuf[11]
+                        elif databuf[3] == 0x14:  # IMU 陀螺/加速度/四元数
                             self.Gyro[0] = int(((databuf[4]&0xff)<<24)|((databuf[5]&0xff)<<16)|((databuf[6]&0xff)<<8)|(databuf[7]&0xff))
                             self.Gyro[1] = int(((databuf[8]&0xff)<<24)|((databuf[9]&0xff)<<16)|((databuf[10]&0xff)<<8)|(databuf[11]&0xff))
                             self.Gyro[2] = int(((databuf[12]&0xff)<<24)|((databuf[13]&0xff)<<16)|((databuf[14]&0xff)<<8)|(databuf[15]&0xff))
@@ -507,14 +496,14 @@ class BaseControl:
 
                             self.Quat[0] = int((databuf[28]&0xff)<<8|databuf[29])
                             self.Quat[1] = int((databuf[30]&0xff)<<8|databuf[31])
-                            self.Quat[2] = int((databuf[32]&0xff)<<8|databuf[33])
-                            self.Quat[3] = int((databuf[34]&0xff)<<8|databuf[35])
-                        elif (databuf[3] == 0x1a):
+                            self.Quat[2] = int((databuf[32] & 0xff) << 8 | databuf[33])
+                            self.Quat[3] = int((databuf[34] & 0xff) << 8 | databuf[35])
+                        elif databuf[3] == 0x1a:  # 超声波
                             self.Sonar[0] = databuf[4]
                             self.Sonar[1] = databuf[5]
                             self.Sonar[2] = databuf[6]
-                            self.Sonar[3] = databuf[7]    
-                        elif(databuf[3] == 0xf2):
+                            self.Sonar[3] = databuf[7]
+                        elif databuf[3] == 0xf2:  # 版本号应答
                             self.movebase_hardware_version[0] = databuf[4]
                             self.movebase_hardware_version[1] = databuf[5]
                             self.movebase_hardware_version[2] = databuf[6]
@@ -525,13 +514,13 @@ class BaseControl:
                                 %(self.movebase_hardware_version[0],self.movebase_hardware_version[1],self.movebase_hardware_version[2],\
                                 self.movebase_firmware_version[0],self.movebase_firmware_version[1],self.movebase_firmware_version[2])
                             rospy.loginfo(version_string)
-                        elif(databuf[3] == 0xf4):
+                        elif databuf[3] == 0xf4:  # 序列号应答
                             sn_string = "SN:"
-                            for i in range(4,16):
-                                sn_string = "%s%02x"%(sn_string,databuf[i])
-                            rospy.loginfo(sn_string)                            
+                            for i in range(4, 16):
+                                sn_string = "%s%02x" % (sn_string, databuf[i])
+                            rospy.loginfo(sn_string)
 
-                        elif(databuf[3] == 0x22):
+                        elif databuf[3] == 0x22:  # 型号/电机/减速比/轮径应答
                             fRatio = float(databuf[6]<<8|databuf[7])/10
                             fDiameter = float(databuf[8]<<8|databuf[9])/10
                             info_string = "Type:%s Motor:%s Ratio:%.01f WheelDiameter:%.01f"\
@@ -544,16 +533,15 @@ class BaseControl:
             else:
                 self.Circleloop.dequeue()
         else:
-            # rospy.loginfo("Circle is Empty")
             pass
 
-        
-#main function
-if __name__=="__main__":
+
+# 程序入口：初始化 ROS 节点并创建底盘控制实例，spin 保持运行
+if __name__ == "__main__":
     try:
-        rospy.init_node('base_control',anonymous=True)
-        if base_type != None:
-            rospy.loginfo('%s base control ...'%base_type)
+        rospy.init_node('base_control', anonymous=True)
+        if base_type is not None:
+            rospy.loginfo('%s base control ...' % base_type)
         else:
             rospy.loginfo('base control ...')
             rospy.logerr('PLEASE SET BASE_TYPE ENV FIRST')

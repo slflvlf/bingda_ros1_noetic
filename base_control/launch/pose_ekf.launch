@@ -1,13 +1,32 @@
- <launch>
-  <node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf" output="log">
-    <param name="output_frame" value="odom"/>
-    <param name="freq" value="30.0"/>
-    <param name="sensor_timeout" value="1.0"/>
-    <param name="odom_used" value="true"/>
-    <param name="imu_used" value="true"/>
-    <param name="vo_used" value="false"/>
-    <param name="debug" value="false"/>
-    <param name="self_diagnose" value="true"/>
-    <remap from="/imu_data" to="/imu"/>
-  </node>
- </launch>
+<launch>
+    <!-- ========== pose_ekf.launch 说明 ==========
+         单独启动 robot_pose_ekf 节点，用于融合里程计(odom)和 IMU 数据，
+         得到更平滑、更准确的 odom -> base_footprint 位姿估计。
+         若底盘已发布 odom 和 imu，且希望用 EKF 替代底盘直接发 TF，可先起底盘再起本 launch。
+    -->
+
+    <!--
+         <node> 属性简要说明：
+         pkg / type：包名和可执行文件名（type 一般为 CMake 里 add_executable 的名字或脚本名）
+         name：节点在 ROS 中的名称，用于 rosnode、话题的节点名等
+         output="log"：输出写到 ROS 日志，不直接刷到终端（若需看打印可改为 screen）
+    -->
+    <node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf" output="log">
+        <!-- 输出 TF 的父坐标系（一般为 odom） -->
+        <param name="output_frame" value="odom"/>
+        <!-- 融合结果发布频率 (Hz) -->
+        <param name="freq" value="30.0"/>
+        <!-- 传感器超时时间(秒)，超时未收到数据会报错 -->
+        <param name="sensor_timeout" value="1.0"/>
+        <!-- 是否使用里程计输入 -->
+        <param name="odom_used" value="true"/>
+        <!-- 是否使用 IMU 输入 -->
+        <param name="imu_used" value="true"/>
+        <!-- 是否使用视觉里程计 -->
+        <param name="vo_used" value="false"/>
+        <param name="debug" value="false"/>
+        <param name="self_diagnose" value="true"/>
+        <!-- robot_pose_ekf 默认订阅 /imu_data，这里重映射到本机的 /imu 话题 -->
+        <remap from="/imu_data" to="/imu"/>
+    </node>
+</launch>
