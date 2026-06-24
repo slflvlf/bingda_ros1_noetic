@@ -1,0 +1,106 @@
+﻿//////////////////////
+数据构成
+//////////////////////
+串口波特率:115200,1停止位，8数据位，无校验
+约定:
+1.上位机往下位机发送的消息，功能码为奇数，下位机往上位机发送，功能码为偶数
+2.帧长度为整个数据包长度，包括从帧头到校验码全部数据
+3.ID为下位机编号，为级联设计预留
+4.预留位，为后续协议扩展预留
+5.CRC校验为一字节，校验方式为CRC-8/MAXIM
+6.线速度单位为m/s，角速度单位为rad/s（弧度制），角度单位为度（角度制）
+
+帧头   帧长度	 ID	   功能码   数据	        预留位  CRC校验
+0x5a   0x00		 0x01  0x00		  0xXX...0xXX   0x00    0xXX
+
+帧头：
+1Byte 0x5a 固定值
+帧长度：
+帧头(1 Byte)+帧长度(1 Byte)+ID(1 Byte)+功能码(1 Byte)+数据(0~250Byte)+预留位(1 Byte)+CRC校验(1 Byte)
+功能码：
+1Byte控制板端发送的功能码为偶数,控制板端接收的功能码为奇数
+数据：
+长度和内容具体参照各功能码定义
+预留位：
+目前设置为0x00，为将来协议可能的扩展预留
+CRC校验：
+1Byte，校验方式为CRC-8/MAXIM
+（参考在线计算网站：http://www.ip33.com/crc.html）
+
+功能码:
+
+0x01
+上位机向下位机发送速度控制指令，数据长度为6Byte，数据为X轴方向速度*1000(int16_t) + Y轴方向速度*1000(int16_t) + Z轴角速度*1000(int16_t)
+数据格式为：
+Byte1   Byte2   Byte3   Byte4   Byte5   Byte6
+X MSB   X LSB   Y MSB   Y LSB   Z MSB   Z LSB
+例:5A 0C 01 01 01 F4 00 00 00 00 00 56 (底盘以0.5m/s的速度向前运动)
+
+
+0x02
+下位机回复上位机的速度控制指令，数据长度1Byte，仅在速度设置失败时候回复，正常时无回复
+数据格式为：
+Byte1
+
+
+0x03
+上位机向下位机发送速度查询指令，数据长度为0Byte
+例:5A 06 01 03 00 DF
+
+0x04
+下位机上报当前速度，数据长度为6Byte，数据为X轴方向速度*1000(int16_t) + Y轴方向速度*1000(int16_t) + Z轴角速度*1000(int16_t)
+数据格式为：
+Byte1   Byte2   Byte3   Byte4   Byte5   Byte6
+X MSB   X LSB   Y MSB   Y LSB   Z MSB   Z LSB
+
+0x05
+上位机向下位机查询IMU数据，数据长度为0Byte
+例:5A 06 01 05 00 75
+
+0x06
+下位机上报当IMU数据，数据长度为6Byte，数据为Pitch*1000(int16_t) + Roll*1000(int16_t) + Yaw*1000(int16_t)
+数据格式为：
+Byte1   	Byte2   	Byte3   	Byte4   	Byte5		Byte6
+Pitch MSB   Pitch LSB   Roll MSB   	Roll LSB   	Yaw MSB   	Yaw LSB
+
+0x07
+上位机向下位机查询电池信息，数据长度为0Byte
+例:5A 06 01 07 00 E4 
+
+0x08
+下位机上报电池信息，数据长度为4Byte，数据为电压Voltage*1000(uint16_t) + 电流Current*1000(uint16_t)
+数据格式为：
+Byte1   		Byte2   		Byte3   		Byte4 
+Voltage MSB		Voltage LSB		Current MSB		Current LSB
+
+0x09
+上位机向下位机获取里程计信息
+例:5A 06 01 09 00 38
+
+0x0a
+下位机上报里程计信息，数据长度为6Byte，数据为线速度*1000、角速度*1000，角度*100
+Byte1   Byte2   Byte3     Byte4     Byte5   Byte6
+X MSB   X LSB   Yaw MSB   Yaw LSB   Z MSB   Z LSB
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

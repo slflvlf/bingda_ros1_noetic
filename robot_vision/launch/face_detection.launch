@@ -1,0 +1,6 @@
+<launch>
+  <!-- 顶层入口：包含 opencv_apps 的人脸检测（已配置 haarcascade 路径与 raw 转发，避免 Compressed Depth 报错） -->
+  <include file="$(find robot_vision)/launch/opencv_apps/face_detection.launch">
+    <arg name="image" value="image_raw" />
+  </include>
+</launch>

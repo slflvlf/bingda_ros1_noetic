@@ -23,14 +23,24 @@
        name="face_cascade_name" default="$(find opencv3)/../OpenCV-3.3.1-dev/haarcascades/haarcascade_frontalface_alt.xml" doc="Face dtection cascade Filename" />
   <arg if="$(arg use_opencv3_3)"
        name="eyes_cascade_name" default="$(find opencv3)/../OpenCV-3.3.1-dev/haarcascades/haarcascade_eye_tree_eyeglasses.xml" doc="Eye dtection cascade Filename" />
+  <!-- 默认使用 robot_vision 自带 haarcascade（Noetic 下 /usr/share/opencv 常不存在）；眼睛级联用 opencv4 路径 -->
   <arg unless="$(arg use_opencv3)"
-       name="face_cascade_name" default="/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml" doc="Face dtection cascade Filename" />
+       name="face_cascade_name" default="$(find robot_vision)/data/haar_detectors/haarcascade_frontalface_alt.xml" doc="Face detection cascade Filename" />
   <arg unless="$(arg use_opencv3)"
-       name="eyes_cascade_name" default="/usr/share/opencv/haarcascades/haarcascade_eye_tree_eyeglasses.xml" doc="Eye dtection cascade Filename" />
+       name="eyes_cascade_name" default="/usr/share/opencv4/haarcascades/haarcascade_eye_tree_eyeglasses.xml" doc="Eye detection cascade Filename" />
 
-  <!-- face_detection.cpp -->
+  <!-- 仅用 raw 转发，避免 image_transport 对 RGB 话题尝试 compressed_depth 导致报错：Compression requires... (input format is: bgr8) -->
+  <arg name="use_raw_republish" default="true" doc="Set true to avoid Compressed Depth Image Transport error on RGB image" />
+  <arg name="image_in" value="face_detection/image_raw" if="$(arg use_raw_republish)" />
+  <arg name="image_in" value="$(arg image)" unless="$(arg use_raw_republish)" />
+  <node name="face_detection_republish" pkg="image_transport" type="republish" args="raw" if="$(arg use_raw_republish)">
+    <remap from="in" to="$(arg image)" />
+    <remap from="out" to="face_detection/image_raw" />
+  </node>
+
+  <!-- face_detection.cpp：订阅 image_in（启用 raw 转发时为 face_detection/image_raw，否则为 image） -->
   <node name="$(arg node_name)" pkg="opencv_apps" type="face_detection"  >
-    <remap from="image" to="$(arg image)" />
+    <remap from="image" to="$(arg image_in)" />
     <param name="use_camera_info" value="$(arg use_camera_info)" />
     <param name="debug_view" value="$(arg debug_view)" />
     <param name="queue_size" value="$(arg queue_size)" />

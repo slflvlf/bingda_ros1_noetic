@@ -6,7 +6,7 @@
   <arg name="camera_tf"       default="false" />    
   <arg name="base_frame"       default="base_footprint" />    
   <arg name="camera_frame" default="base_camera_link"/>  
-  <arg name="device" default="video0"/>  
+  <arg name="device" default="video1"/>  
   <arg name="base_id"    value="$(arg robot_name)/$(arg base_frame)"/>        <!-- base_link name -->
   <arg name="camera_id"    value="$(arg robot_name)/$(arg camera_frame)"/>  <!-- camera link name -->
   <!--NanoRobot camera image need flip-->

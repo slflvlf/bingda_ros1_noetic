@@ -2,8 +2,11 @@
 <!-- ROS launch 根标签；pkg/type 等说明见 base_control 目录下 LAUNCH_SYNTAX.md -->
 <launch>
     <!-- 二、<arg> 声明可传入变量，default 可被命令行或 include 覆盖；$(env VAR) 读环境变量 -->
-    <arg name="base_type"       default="$(env BASE_TYPE)" />
+    <!-- $(env BASE_TYPE)：读取当前 shell 环境变量 BASE_TYPE，通常在 ~/.bashrc 中 export BASE_TYPE=NanoCar_Pro -->
+    <arg name="base_type"       default="$(env BASE_TYPE)" />   <!-- 底盘型号 ，该环节变量在.bashrc中设置-->
     <arg name="robot_name"      default=""/>
+    <!-- base_frame 默认值 "base_footprint" 是一个字符串（frame_id），后续在 tf 树中与实际发布的 TF 对应；
+         例如 robot_pose_ekf / base_control 节点会用这个名字作为 base_link 的 frame_id，TF 广播器会发布 base_footprint → odom 等变换 -->
     <arg name="base_frame"      default="base_footprint" />
     <arg name="odom_frame"      default="odom" />
     <arg name="imu_frame"       default="imu" />
@@ -20,10 +23,13 @@
     <arg name="port"            default="move_base" />
 
     <!-- 三、<group if=""> 条件成立时执行；单机时 robot_name 为空 -->
+    <!-- <group if="$(eval robot_name == '')"> 的意义：当 robot_name 为空字符串时（默认值），执行单机模式下的节点启动逻辑 -->
     <group if="$(eval robot_name == '')">
         <!-- 四、<node> 的 pkg/type 见 LAUNCH_SYNTAX.md；output="screen" 把打印打到终端 -->
+        <!-- <node> 内的 pkg/type/name/output 属性顺序可任意；if="$(arg use_ekf)" 表示：仅当 use_ekf 参数为 true 时才启动该节点 -->
         <node name="base_control" pkg="base_control" type="base_control.py" output="screen">
             <!-- 五、<param> 即节点私有参数 ~参数名，Python 里 rospy.get_param('~参数名') 读取 -->
+            <!-- 节点启动时，launch 会把这些 <param> 写入参数服务器；节点代码通过 rospy.get_param('~xxx') 读取 -->
             <param name="baudrate"   value="115200"/>
             <param name="port"       value="/dev/$(arg port)"/>
             <param name="base_id"    value="$(arg base_frame)"/>
@@ -44,6 +50,8 @@
         </node>
 
         <!-- robot_pose_ekf：ROS 官方包，融合 odom+IMU；参数见 wiki.ros.org/robot_pose_ekf -->
+        <!-- 如何看出是官方包：pkg="robot_pose_ekf" 在 rospack find 后指向 /opt/ros/noetic/share/robot_pose_ekf，且 wiki.ros.org 有独立页面；
+             而 base_control 的 pkg 指向本工作空间 src/ 下，说明是用户自己写的包 -->
         <node pkg="robot_pose_ekf" type="robot_pose_ekf" name="robot_pose_ekf" output="log" if="$(arg use_ekf)">
             <param name="output_frame" value="$(arg odom_frame)"/>
             <param name="base_footprint_frame" value="$(arg robot_name)/$(arg base_frame)"/>
@@ -58,6 +66,8 @@
         </node>
 
         <!-- tf 包：ROS 官方；static_transform_publisher 发布固定 TF，args: x y z yaw pitch roll parent_frame child_frame 频率(Hz) -->
+        <!-- R 矩阵（旋转矩阵）参数：此处 args 中的 0.0 0.0 0.08 表示 IMU 安装位置相对 base_footprint 的 x/y/z 偏移（米），
+             后三个 0.0 表示 roll/pitch/yaw 旋转（弧度）；这些值由机械结构测量或 CAD 模型确定，需与实际安装位置一致 -->
         <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 $(arg base_frame) $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot')"/>
         <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.0 0.0 0.08 0.0 0.0 0.0 $(arg base_frame) $(arg imu_frame) 20" if="$(eval base_type == 'NanoRobot_Pro')"/>
         <node pkg="tf" type="static_transform_publisher" name="imu_to_base" args="0.01 0.0 0.08 0.0 0.0 0.0 $(arg base_frame) $(arg imu_frame) 20" if="$(eval base_type == 'NanoCar')"/>
@@ -66,7 +76,9 @@
     </group>
 
     <!-- 多机：ns 给节点加命名空间，话题/TF 带前缀如 /robot1/cmd_vel -->
+    <!-- robot_name 非空即进入多机模式：通过 <group ns="robot_name"> 为该机器人下的所有节点和话题加上命名空间前缀，实现多机隔离 -->
     <group unless="$(eval robot_name == '')">
+        <!-- 两层嵌套：<group unless> 判断是否多机，内层 <group ns="..."> 真正给节点加命名空间；二者配合实现“仅在多机时才加 ns” -->
         <group ns="$(arg robot_name)">
             <node name="base_control" pkg="base_control" type="base_control.py" output="screen">
                 <param name="baudrate"   value="115200"/>
@@ -74,6 +86,9 @@
                 <param name="base_id"    value="$(arg robot_name)/$(arg base_frame)"/>
                 <param name="odom_id"    value="$(arg robot_name)/$(arg odom_frame)"/>
                 <param name="imu_id"     value="$(arg robot_name)/$(arg imu_frame)"/>
+                <!-- 多机时，odom_topic / imu_topic 等通常保持相对名（不加 robot_name 前缀），
+                     因为 base_control 节点内部会自动在当前命名空间下发布/订阅；
+                     而 ackermann_cmd_topic 显式加了 $(arg robot_name) 前缀，是为了让外部遥控器能直接发到 /robotX/ackermann_cmd -->
                 <param name="odom_topic" value="$(arg odom_topic)"/>
                 <param name="imu_topic"  value="$(arg imu_topic)"/>
                 <param name="battery_topic" value="$(arg battery_topic)"/>
